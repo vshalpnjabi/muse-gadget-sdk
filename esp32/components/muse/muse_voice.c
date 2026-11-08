@@ -1193,7 +1193,8 @@ static void run_call(bool ptt, size_t waking_chunks)
                     if (muse_settings_vg_tone() && muse_settings_speaker_on()) muse_audio_sfx(MUSE_SFX_CHIRP_DOWN);
                 } else if (seen == MUSE_VG_LOST) {
                     char cur[48];
-                    if (muse_state_caption(cur, sizeof(cur), NULL) && !strcmp(cur, VG_NOTICE)) {
+                    uint32_t never = UINT32_MAX;   /* no version matches: always the current caption */
+                    if (muse_state_caption(cur, sizeof(cur), &never) && !strcmp(cur, VG_NOTICE)) {
                         muse_state_set_caption("%s", "");   /* recognized again */
                     }
                 }
