@@ -554,6 +554,88 @@ static void barge_in(void)
     expect_event(MUSE_VOICE_CALL_EV_ENDED);
 }
 
+#if CONFIG_MUSE_REALTIME_VOICE_GREETING
+static bool sent_has(int64_t id, const char *text)
+{
+    for (const op_t &o : s_ops) {
+        if (o.op == "send" && o.id == id && o.body.find(text) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Nobody speaks: the greeting waits a second after the call is live, then
+ * plays whole and in order, and later audio follows it. */
+static void greeting_waits_then_plays(void)
+{
+    int64_t id = live_call();
+    bool asked = false;
+    for (const op_t &o : s_ops) {
+        asked |= o.op == "media" && o.body.find("\"proactive_greeting_enabled\":true") != std::string::npos;
+    }
+    assert(asked);
+    line(id, "{\"type\":\"response.created\",\"event_id\":\"e\",\"response\":{\"id\":\"g1\"}}");
+    for (int i = 0; i < 5; i++) {
+        line(id, cavd(9000));
+    }
+    poll(1, 400000);
+    assert(read_all() == 0);   /* held */
+    mic(1600);
+    poll(1, 100000);
+    assert(count("send", id) > 0);   /* the mic stays open while it waits */
+    assert(read_all() == 0);
+    poll(1, 600000);   /* past the second */
+    assert(read_all() == 5 * 640);
+    line(id, cavd(9000));
+    assert(read_all() == 640);
+    assert(!sent_has(id, "response.cancel"));
+    muse_voice_call_end();
+    serve_ending(id);
+    expect_event(MUSE_VOICE_CALL_EV_ENDED);
+}
+
+/* The caller speaks within the second: the greeting never plays, and Muse is
+ * told to stop it; the answer to the caller plays as usual. */
+static void greeting_dropped_when_caller_speaks_first(void)
+{
+    int64_t id = live_call();
+    line(id, "{\"type\":\"response.created\",\"event_id\":\"e\",\"response\":{\"id\":\"g1\"}}");
+    for (int i = 0; i < 5; i++) {
+        line(id, cavd(9000));
+    }
+    poll(1, 300000);
+    line(id, "{\"type\":\"input_audio_buffer.speech_started\",\"event_id\":\"e\",\"item_id\":\"i\",\"audio_start_ms\":5}");
+    line(id, cavd(9000));   /* the greeting's tail, before the flush is read: dropped */
+    poll();
+    assert(sent_has(id, "{\"type\":\"response.cancel\",\"response_id\":\"g1\"}"));
+    bool flushed = false;
+    assert(read_all(nullptr, &flushed) == 0 && flushed);
+    poll(1, 2000000);   /* long past the second: nothing held comes back */
+    assert(read_all() == 0);
+    line(id, "{\"type\":\"response.created\",\"event_id\":\"e\",\"response\":{\"id\":\"a1\"}}");
+    line(id, cavd(9000));
+    assert(read_all() == 640);   /* the answer plays at once */
+    muse_voice_call_end();
+    serve_ending(id);
+    expect_event(MUSE_VOICE_CALL_EV_ENDED);
+}
+
+/* Hanging up during the second: the greeting never plays. */
+static void greeting_dropped_on_hang_up(void)
+{
+    int64_t id = live_call();
+    for (int i = 0; i < 3; i++) {
+        line(id, cavd(9000));
+    }
+    muse_voice_call_end();
+    serve_ending(id);
+    expect_event(MUSE_VOICE_CALL_EV_ENDED);
+    poll(1, 2000000);
+    assert(read_all() == 0);
+}
+#endif
+
 static void hold(void)
 {
     int64_t id = live_call();
@@ -2957,7 +3039,12 @@ int main(int argc, char **argv)
                                     ptt_stop_discards_ineligible, ptt_stop_paced_ack_only, ptt_stop_paced_ack_eof,
                                     ptt_stop_paced_eof_ack, ptt_stop_paced_output_only, ptt_stop_no_progress_deadline,
                                     ptt_stop_paced_interrupts, hands_free_working,
-                                    hands_free_interrupted_settle, hands_free_early_media_and_keep_cap };
+                                    hands_free_interrupted_settle, hands_free_early_media_and_keep_cap,
+#if CONFIG_MUSE_REALTIME_VOICE_GREETING
+                                    greeting_waits_then_plays, greeting_dropped_when_caller_speaks_first,
+                                    greeting_dropped_on_hang_up,
+#endif
+    };
     int which = atoi(argv[1]);
     if (which < 0 || which >= (int)(sizeof(cases) / sizeof(cases[0]))) {
         return 2;

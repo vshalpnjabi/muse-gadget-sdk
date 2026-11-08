@@ -619,6 +619,50 @@ class VoiceCallSession(unittest.TestCase):
         self.run_case('mute_partial')
 
 
+class VoiceCallGreeting(unittest.TestCase):
+    """The same harness built with CONFIG_MUSE_REALTIME_VOICE_GREETING: a
+    hands-free greeting waits a second and gives way to the caller."""
+
+    CASES = VoiceCallSession.CASES + ['greeting_waits_then_plays', 'greeting_dropped_when_caller_speaks_first',
+                                      'greeting_dropped_on_hang_up']
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.tmp.cleanup)
+        out = Path(cls.tmp.name)
+        inc = ['-I', str(FAKES), '-I', str(TESTS), '-I', str(MUSE), '-DCONFIG_MUSE_REALTIME_VOICE_GREETING=1']
+        cls.binary = out / 'call'
+        build([
+            [*CC, '-std=c11', *SANITIZE, *WARN, *inc, '-c', str(MUSE / 'muse_voice_call_core.c'), '-o',
+             str(out / 'core.o')],
+            [*CXX, '-std=gnu++17', *SANITIZE, *WARN, *inc, '-include', str(TESTS / 'host_compat.h'),
+             '-include', str(FAKES / 'wall_clock.h'), '-c',
+             str(MUSE / 'muse_voice_call.cpp'), '-o', str(out / 'call.o')],
+            [*CXX, '-std=gnu++17', *SANITIZE, *WARN, *inc, '-c', str(TESTS / 'muse_voice_call_harness.cpp'), '-o',
+             str(out / 'harness.o')],
+            [*CXX, *SANITIZE, str(out / 'core.o'), str(out / 'call.o'), str(out / 'harness.o'), '-lm', '-o',
+             str(cls.binary)],
+        ])
+
+    run_case = VoiceCallSession.run_case
+
+    def test_greeting_waits_a_second_then_plays(self):
+        self.run_case('greeting_waits_then_plays')
+
+    def test_speaking_first_drops_and_cancels_the_greeting(self):
+        self.run_case('greeting_dropped_when_caller_speaks_first')
+
+    def test_hanging_up_first_drops_the_greeting(self):
+        self.run_case('greeting_dropped_on_hang_up')
+
+    def test_barge_in_still_flushes(self):
+        self.run_case('barge_in')
+
+    def test_happy_path_with_greeting(self):
+        self.run_case('happy')
+
+
 class VoicePeCallLoop(unittest.TestCase):
     """main/voice.c's call loop against board, player and call fakes: the mute
     switch stops captured audio before it's handed on, and no caller text is logged."""

@@ -99,6 +99,9 @@ static const char *TAG = "muse_call";
 #else
 #define GREETING false
 #endif
+/* A hands-free call's greeting waits this long after the call is live, and
+ * doesn't play at all if the caller starts talking first. */
+#define GREETING_HOLD_US (1000000LL)
 
 /* A start, written by the voice task before it publishes the generation
  * (s_gen) that names it. Only the newest start matters: the session takes
@@ -215,6 +218,11 @@ static ring_t s_defer, s_wait;
  * work bound to that response, if any; the server's barge-in on the new
  * speech is what stops the provider's own speech. */
 static char s_cancel[MUSE_VC_TURN_ID_MAX];
+/* Hands-free greeting: until s_greet_until, reply audio waits in s_defer
+ * (otherwise unused in a hands-free call) and the mic stays open. Speech
+ * first drops it and cancels s_greet_resp; else it plays at s_greet_until. */
+static int64_t s_greet_until;
+static char s_greet_resp[MUSE_VC_TURN_ID_MAX];
 static uint32_t s_st;                /* status bits (session's copy) */
 static int64_t s_wall_offset_ms;
 static bool s_wall_known;
@@ -646,6 +654,26 @@ static void defer_flush(void)
     }
 }
 
+/* Hands-free: once the greeting's hold is over, what waited plays, as far as
+ * it fits; the rest goes at the next poll or the next audio. */
+static void greet_drain(void)
+{
+    if (s_greet_until || s_flush_req.load() != s_flush_ack.load()) {
+        return;
+    }
+    while (s_defer.len) {
+        const int16_t *p;
+        size_t n = ring_peek(&s_defer, &p);
+        size_t room = xStreamBufferSpacesAvailable(s_out) / sizeof(int16_t);
+        n = n < room ? n : room;
+        if (!n) {
+            return;
+        }
+        xStreamBufferSend(s_out, p, n * sizeof(int16_t), 0);
+        ring_pop(&s_defer, n);
+    }
+}
+
 /* Too much of a reply came before it could play: drop it whole rather than
  * play it cut, and say so. */
 static void reply_lost(void)
@@ -746,6 +774,9 @@ static bool take(uint32_t acts)
 {
     if (acts & MUSE_VC_ACT_FLUSH) {
         s_flush_req.fetch_add(1);
+        if (!s_ptt) {
+            ring_clear(&s_defer);   /* a greeting still waiting or draining goes too */
+        }
     }
     if (acts & MUSE_VC_ACT_HOLD) {
         ESP_LOGI(TAG, "input %s", s_call.held ? "held" : "resumed");
@@ -832,6 +863,20 @@ static void play(const muse_vc_event_t &ev, int64_t now)
         }
         return;
     }
+    if (s_greet_until || s_defer.len) {
+        /* The greeting waits, or what waited is still draining: keep the order. */
+        if (!ring_push(&s_defer, s_pcm, (size_t)n)) {
+            s_greet_until = 0;   /* more than the ring holds: it plays now */
+            greet_drain();
+            if (!ring_push(&s_defer, s_pcm, (size_t)n)) {
+                s_dropped_audio++;
+                return;
+            }
+        }
+        s_frames_out++;
+        greet_drain();
+        return;
+    }
     if (xStreamBufferSpacesAvailable(s_out) < bytes) {
         s_dropped_audio++;
         return;
@@ -859,6 +904,20 @@ static void on_line(void *ctx, const char *line, size_t len)
     switch (ev.kind) {
     case MUSE_VC_EV_RESPONSE_CREATED:
         s_reply[0] = '\0';
+        if (!s_ptt && s_greet_until && !s_greet_resp[0] && ev.mapper_response_id.p &&
+            !muse_vc_json_unescape(ev.mapper_response_id, s_greet_resp, sizeof(s_greet_resp))) {
+            s_greet_resp[0] = '\0';
+        }
+        break;
+    case MUSE_VC_EV_SPEECH_STARTED:
+        if (!s_ptt && s_greet_until) {
+            /* The caller spoke first: no greeting. The flush below drops what
+             * waited; the cancel stops the rest of it at Muse. */
+            s_greet_until = 0;
+            strlcpy(s_cancel, s_greet_resp, sizeof(s_cancel));
+            s_greet_resp[0] = '\0';
+            ESP_LOGI(TAG, "caller spoke first: greeting dropped");
+        }
         break;
     case MUSE_VC_EV_REPLY_TEXT:
         if (before && captions) {
@@ -905,6 +964,9 @@ static void on_line(void *ctx, const char *line, size_t len)
         break;
     }
     take(muse_vc_call_event(&s_call, &ev, now));
+    if (GREETING && !s_ptt && !before && s_call.state == MUSE_VC_LIVE) {
+        s_greet_until = now + GREETING_HOLD_US;   /* live: Muse's greeting waits a moment */
+    }
     /* The lifecycle validates first (a turn with a bad or conflicting
      * identity fails the call): the gate only hears what it accepted. */
     if (s_ptt && before && s_call.state == MUSE_VC_LIVE) {
@@ -940,8 +1002,8 @@ static void on_line(void *ctx, const char *line, size_t len)
 
 static const int16_t s_quiet[MIC_PIECE] = {};
 
-/* A push-to-talk call's uplink: held audio, then quiet. */
-static bool pump_ptt(int64_t now)
+/* A pending response.cancel goes up ahead of any more mic audio. */
+static bool send_cancel(void)
 {
     if (s_cancel[0]) {
         char esc[MUSE_VC_TURN_ID_MAX * 6 + 1], cancel[sizeof(esc) + 64];
@@ -953,6 +1015,15 @@ static bool pump_ptt(int64_t now)
             }
         }
         s_cancel[0] = '\0';
+    }
+    return true;
+}
+
+/* A push-to-talk call's uplink: held audio, then quiet. */
+static bool pump_ptt(int64_t now)
+{
+    if (!send_cancel()) {
+        return false;
     }
     if (s_talk) {
         muse_vc_call_activity(&s_call, now);   /* holding the button isn't idle */
@@ -1020,6 +1091,9 @@ static bool pump_mic(int64_t now)
         s_mic_len = s_mic_off = 0;
         return true;
     }
+    if (!send_cancel()) {
+        return false;
+    }
     for (int lines = 0; lines < LINES_PER_POLL;) {
         if (end_requested()) {
             /* Hung up mid-pump: nothing more goes, a partial append included. */
@@ -1084,7 +1158,12 @@ static bool begin_call(uint32_t gen)
         s_cancel[0] = '\0';
         s_st = 0;
         s_quiet_next_us = 0;
+    } else {
+        ring_clear(&s_defer);
+        s_cancel[0] = '\0';
     }
+    s_greet_until = 0;
+    s_greet_resp[0] = '\0';
     s_reply[0] = s_error[0] = '\0';
     s_acts = 0;
     s_drop = false;
@@ -1236,6 +1315,15 @@ bool muse_voice_call_poll(void)
             defer_clear();
             run(MUSE_VC_ACT_ENDED, false);
         }
+    } else {
+        if (s_greet_until && s_call.state != MUSE_VC_LIVE) {
+            ring_clear(&s_defer);   /* the call ended first: no greeting */
+        }
+        if (s_greet_until && (now >= s_greet_until || s_call.state != MUSE_VC_LIVE)) {
+            s_greet_until = 0;   /* nobody spoke: the greeting plays */
+            s_greet_resp[0] = '\0';
+        }
+        greet_drain();
     }
     bool ok = pump_mic(now_us());
     publish();
