@@ -67,3 +67,7 @@ void muse_ui_bench_page(bool settings);
 /* Display-only demo name for privacy-safe screenshots; no provisioning changes. */
 void muse_ui_bench_demo(bool enabled);
 #endif
+
+/* Turns the screen 0, 90, 180 or 270 degrees, overriding auto-rotate; anything else
+ * hands it back to how the board is held. For the console's ">rotate=". */
+void muse_ui_rotate(int degrees);

@@ -52,6 +52,8 @@ static uint8_t *s_chunk[2];
 static size_t s_chunk_bytes;
 static int s_chunks_out;                 /* of the band being sent */
 static SemaphoreHandle_t s_band_done;    /* given once the band LVGL queued has gone */
+static uint8_t *s_rot_buf;               /* a band turned for a rotated display, PSRAM */
+static size_t s_rot_cap;
 static volatile bool s_band_busy;        /* queued and not yet gone */
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -135,9 +137,34 @@ static void wire_idle(int held)
 static esp_err_t queue_band(lv_display_t *disp, esp_lcd_panel_handle_t panel, int x1, int y1, int x2, int y2,
                             const void *data, void *ctx)
 {
-    (void)disp;
     (void)panel;
     (void)ctx;
+    /* A rotated display (lv_display_set_rotation, auto-rotate): LVGL draws
+     * upright and leaves turning the band to the flush. It's turned into one
+     * PSRAM buffer (LVGL waits for a band to go before drawing the next) with
+     * LVGL's own helpers, so the panel window matches how LVGL turns touches.
+     * The board's even rounding stays even through the turn. */
+    lv_display_rotation_t rot = lv_display_get_rotation(disp ? disp : s_disp);
+    if (rot != LV_DISPLAY_ROTATION_0) {
+        int w = x2 - x1, h = y2 - y1;
+        size_t need = (size_t)w * h * 2;
+        if (need > s_rot_cap) {
+            heap_caps_free(s_rot_buf);
+            s_rot_buf = heap_caps_malloc(need, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            s_rot_cap = s_rot_buf ? need : 0;
+        }
+        if (s_rot_buf) {
+            int dst_w = rot == LV_DISPLAY_ROTATION_180 ? w : h;
+            lv_draw_sw_rotate(data, s_rot_buf, w, h, w * 2, dst_w * 2, rot, LV_COLOR_FORMAT_RGB565);
+            lv_area_t a = { x1, y1, x2 - 1, y2 - 1 };
+            lv_display_rotate_area(disp ? disp : s_disp, &a);
+            x1 = a.x1;
+            y1 = a.y1;
+            x2 = a.x2 + 1;
+            y2 = a.y2 + 1;
+            data = s_rot_buf;
+        }
+    }
     band_t b = { data, x1, y1, x2, y2 };
     xSemaphoreTake(s_band_done, 0);   /* left by a band that had gone before LVGL waited for it */
     s_band_busy = true;

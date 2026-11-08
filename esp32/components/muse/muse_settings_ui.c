@@ -1403,15 +1403,44 @@ static void hour_text(lv_obj_t *lbl, int h)
 
 static void show_hours(void)
 {
-    hour_text(s_from_val, lv_slider_get_value(s_from_sl));
-    hour_text(s_to_val, lv_slider_get_value(s_to_sl));
+    hour_text(s_from_val, lv_arc_get_value(s_from_sl));
+    hour_text(s_to_val, lv_arc_get_value(s_to_sl));
+}
+
+/* A clock dial for an hour: a full circle of 24 hours from the top, the hour
+ * in its middle. Drag round it; letting go saves. */
+static lv_obj_t *hour_dial(lv_obj_t *list, const char *title, int hour, lv_obj_t **value_out, lv_event_cb_t cb)
+{
+    lv_obj_t *c = lv_obj_create(list);
+    lv_obj_remove_style_all(c);
+    lv_obj_set_size(c, lv_pct(100), 190);
+    lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+    label(c, &lv_font_montserrat_16, COLOR_TEXT, title);
+    lv_obj_t *arc = lv_arc_create(c);
+    lv_obj_set_size(arc, 150, 150);
+    lv_obj_align(arc, LV_ALIGN_TOP_MID, 0, 28);
+    lv_arc_set_range(arc, 0, 23);
+    lv_arc_set_bg_angles(arc, 0, 360);
+    lv_arc_set_rotation(arc, 270);   /* midnight at the top */
+    lv_arc_set_value(arc, hour);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(muse_theme()->slider_bg), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(COLOR_ACCENT), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(arc, lv_color_hex(COLOR_TEXT), LV_PART_KNOB);
+    lv_obj_set_style_arc_width(arc, 10, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, 10, LV_PART_INDICATOR);
+    lv_obj_add_event_cb(arc, cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(arc, cb, LV_EVENT_RELEASED, NULL);
+    lv_obj_t *v = label(c, &lv_font_montserrat_20, COLOR_ACCENT, "");
+    lv_obj_align_to(v, arc, LV_ALIGN_CENTER, 0, 0);
+    *value_out = v;
+    return arc;
 }
 
 /* The switch or either slider: store the hours, or none. */
 static void save_hours(void)
 {
     bool on = lv_obj_has_state(s_hours_sw, LV_STATE_CHECKED);
-    int from = lv_slider_get_value(s_from_sl), to = lv_slider_get_value(s_to_sl);
+    int from = lv_arc_get_value(s_from_sl), to = lv_arc_get_value(s_to_sl);
     muse_settings_set_sleep_hours(on ? from : -1, on ? to : -1);
 }
 
@@ -1448,8 +1477,8 @@ static void build_sleep_page(lv_obj_t *tile)
     note(list, "No sounds of the board's own (touches, shakes). Muse still answers you.");
     int from = muse_settings_sleep_from(), to = muse_settings_sleep_to();
     s_hours_sw = switch_row(list, "Sleep hours", from >= 0, on_hours_sw);
-    s_from_sl = slider(list, "From", 0, 23, from >= 0 ? from : 22, &s_from_val, on_hours_sl);
-    s_to_sl = slider(list, "To", 0, 23, to >= 0 ? to : 7, &s_to_val, on_hours_sl);
+    s_from_sl = hour_dial(list, "From", from >= 0 ? from : 22, &s_from_val, on_hours_sl);
+    s_to_sl = hour_dial(list, "To", to >= 0 ? to : 7, &s_to_val, on_hours_sl);
     show_hours();
     char tz[MUSE_TZ_MAX + 1];
     muse_settings_tz(tz);
@@ -1490,7 +1519,7 @@ static lv_obj_t *s_captions_sw;
 #define THEMES_MAX 8
 static lv_obj_t *s_theme_checks[THEMES_MAX];
 #if MUSE_HAS_PHOTO_AVATAR
-static const char *const AVATAR_NAMES[MUSE_AVATAR_COUNT] = { "Pixel art", "Muse app picture" };
+static const char *const AVATAR_NAMES[MUSE_AVATAR_COUNT] = { "Pixel art", "Original" };
 static lv_obj_t *s_avatar_checks[MUSE_AVATAR_COUNT];
 #endif
 
@@ -1528,6 +1557,13 @@ static void on_avatar_choice(lv_event_t *e)
 }
 #endif
 
+#if CONFIG_MUSE_IMU
+static void on_rotate_sw(lv_event_t *e)
+{
+    muse_settings_set_autorotate(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
+}
+#endif
+
 static void on_captions_sw(lv_event_t *e)
 {
     muse_settings_set_captions(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
@@ -1543,13 +1579,15 @@ static void build_appearance_page(lv_obj_t *tile)
         set_val(s_bright_val, "%d%%", muse_settings_brightness());
     }
 #if MUSE_HAS_PHOTO_AVATAR
-    note(list, "Avatar on the face:");
+    note(list, "Avatar type");
     for (int i = 0; i < MUSE_AVATAR_COUNT; i++) {
         row(list, NULL, AVATAR_NAMES[i], &s_avatar_checks[i], on_avatar_choice, (void *)(intptr_t)i);
         lv_obj_set_style_text_color(s_avatar_checks[i], lv_color_hex(COLOR_ACCENT), 0);
     }
-    note(list, "Pixel art is drawn by your Muse; the picture is the one in the Muse app, "
-               "brought to life by the board.");
+#endif
+#if CONFIG_MUSE_IMU
+    switch_row(list, "Auto-rotate", muse_settings_autorotate(), on_rotate_sw);
+    note(list, "The screen turns to how you hold the board.");
 #endif
     note(list, "Theme:");
     for (int i = 0; i < muse_theme_count() && i < THEMES_MAX; i++) {
@@ -1778,7 +1816,7 @@ static void tick_home(void)
     set_text(s_home_sleep, sleep_name(muse_settings_sleep_s()));
     if (s_home_appearance) {   /* not on a screen-only board */
 #if MUSE_HAS_PHOTO_AVATAR
-        set_text(s_home_appearance, muse_settings_avatar() == MUSE_AVATAR_PHOTO ? "Picture" : "Pixel art");
+        set_text(s_home_appearance, muse_settings_avatar() == MUSE_AVATAR_PHOTO ? "Original" : "Pixel art");
 #else
         set_text(s_home_appearance, muse_settings_captions() ? "Captions on" : "Captions off");
 #endif

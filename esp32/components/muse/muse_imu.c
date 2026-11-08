@@ -48,6 +48,7 @@ static const char *TAG = "muse_imu";
 
 static i2c_master_dev_handle_t s_dev;
 static _Atomic float s_tilt_x, s_tilt_y, s_shake;
+static atomic_int s_rotation;
 static atomic_bool s_present;
 
 static esp_err_t rd(uint8_t reg, uint8_t *buf, size_t n)
@@ -103,6 +104,24 @@ static void imu_task(void *arg)
             atomic_store(&s_tilt_x, tx > 1 ? 1 : tx < -1 ? -1 : tx);
             atomic_store(&s_tilt_y, ty > 1 ? 1 : ty < -1 ? -1 : ty);
             atomic_store(&s_shake, shake);
+            /* Which edge is down, for auto-rotate: from gravity in the screen's
+             * plane, only when the board is held up (not lying flat), within 30
+             * degrees of a quarter turn, for 0.6 s. */
+            static int candidate = -1, held;
+            float planar = sqrtf(gx * gx + gy * gy);
+            if (planar > 0.55f) {
+                float deg = atan2f(gx, gy) * 57.29578f;   /* 0: top edge up */
+                int q = ((int)lroundf(deg / 90.0f) % 4 + 4) % 4;
+                float off = fabsf(deg - q * 90.0f);
+                off = off > 180 ? 360 - off : off;
+                if (off < 30.0f) {
+                    static const int ROT[4] = { 0, 270, 180, 90 };   /* the display's turn to undo it */
+                    int r = ROT[q];
+                    held = r == candidate ? held + 1 : 0;
+                    candidate = r;
+                    if (held >= 600 / PERIOD_MS) atomic_store(&s_rotation, r);
+                }
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(PERIOD_MS));
     }
@@ -150,4 +169,5 @@ void muse_motion(muse_motion_t *out)
     out->tilt_x = atomic_load(&s_tilt_x);
     out->tilt_y = atomic_load(&s_tilt_y);
     out->shake = atomic_load(&s_shake);
+    out->rotation = atomic_load(&s_rotation);
 }

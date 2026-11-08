@@ -76,6 +76,7 @@ static atomic_int s_avatar = MUSE_AVATAR_PIXEL;
 #endif
 static atomic_bool s_captions = true;
 static atomic_bool s_dnd;
+static atomic_bool s_autorotate;
 static atomic_int s_theme = CONFIG_MUSE_DEFAULT_THEME;
 static atomic_int s_sleep_from = -1, s_sleep_to = -1;
 static char s_tz[MUSE_TZ_MAX + 1] = CONFIG_MUSE_TIMEZONE;   /* under s_lock */
@@ -151,6 +152,9 @@ esp_err_t muse_settings_init(void)
     if (nvs_get_u8(s_nvs, "captions", &b) == ESP_OK) {
         atomic_store(&s_captions, b != 0);
     }
+    if (nvs_get_u8(s_nvs, "rotate", &b) == ESP_OK) {
+        atomic_store(&s_autorotate, b != 0);
+    }
     if (nvs_get_u8(s_nvs, "theme", &b) == ESP_OK) {
         atomic_store(&s_theme, b);
     }
@@ -220,6 +224,14 @@ void muse_settings_set_voice_notes(bool on)
 }
 
 bool muse_settings_captions(void) { return atomic_load(&s_captions); }
+
+bool muse_settings_autorotate(void) { return atomic_load(&s_autorotate); }
+
+void muse_settings_set_autorotate(bool on)
+{
+    atomic_store(&s_autorotate, on);
+    save_u8("rotate", on);
+}
 
 int muse_settings_theme(void) { return atomic_load(&s_theme); }
 

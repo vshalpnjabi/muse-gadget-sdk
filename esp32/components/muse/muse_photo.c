@@ -41,11 +41,14 @@
 #define VIEW_SHARE 1.0f
 #define FOCUS_X 0.50f
 #define FOCUS_Y 0.50f
+/* Where the head ends in photo_avatar.py's crop: the chin, and the neck's foot. */
+#define HEAD_CHIN 0.54f
+#define HEAD_NECK_END 0.66f
 
 static int s_size = 320;
 /* What's shown: zoom in 1/1024 steps, offsets in half pixels, brightness in 1/16. */
 static int s_zoom = 1024, s_dx2, s_dy2, s_bright = 16;
-static int s_turn;   /* the whole picture turned, 1/1024 of a turn (a dizzy spin) */
+static int s_head_dx2;   /* the head alone swung sideways, half pixels (a head shake) */
 
 void muse_photo_set_size(int px)
 {
@@ -167,7 +170,7 @@ int muse_photo_take_sound(void)
     return k;
 }
 
-enum { PART_HEART, PART_SPARKLE, PART_ZZZ };
+enum { PART_HEART, PART_SPARKLE, PART_ZZZ, PART_SWOOSH_L, PART_SWOOSH_R };
 typedef struct {
     float x, y, vx, vy, born, life;   /* canvas px, px/s, s */
     uint8_t kind;
@@ -182,9 +185,12 @@ static int s_spawn_kind = -1, s_spawn_n;
 static const uint8_t HEART[6] = { 0x36, 0x7f, 0x7f, 0x3e, 0x1c, 0x08 };
 static const uint8_t SPARKLE[7] = { 0x08, 0x08, 0x1c, 0x7f, 0x1c, 0x08, 0x08 };
 static const uint8_t ZZZ[5] = { 0x3e, 0x04, 0x08, 0x10, 0x3e };   /* a "z", asleep */
+static const uint8_t SWOOSH_L[7] = { 0x02, 0x04, 0x08, 0x08, 0x08, 0x04, 0x02 };   /* "(": motion lines */
+static const uint8_t SWOOSH_R[7] = { 0x20, 0x10, 0x08, 0x08, 0x08, 0x10, 0x20 };   /* ")" */
 #define HEART_RGB565 0xfa4f     /* pink-red */
 #define SPARKLE_RGB565 0xfeea   /* warm yellow */
 #define ZZZ_RGB565 0xa69f       /* pale blue */
+#define SWOOSH_RGB565 0xc618    /* light grey */
 
 static void spawn(int kind, float x, float y, float t, int n)
 {
@@ -202,9 +208,14 @@ static void spawn(int kind, float x, float y, float t, int n)
                 q->x = x;
                 q->y = y;
                 q->vx = 14.0f;
+            } else if (kind == PART_SWOOSH_L || kind == PART_SWOOSH_R) {
+                q->x = x;   /* stay put beside the head while it shakes */
+                q->y = y;
+                q->vx = q->vy = 0;
             }
             q->born = t + 0.12f * k;   /* staggered, not all at once */
-            q->life = kind == PART_HEART ? 1.4f : kind == PART_ZZZ ? 2.6f : 0.9f;
+            q->life = kind == PART_HEART ? 1.4f : kind == PART_ZZZ ? 2.6f
+                    : kind == PART_SWOOSH_L || kind == PART_SWOOSH_R ? 1.1f : 0.9f;
             break;
         }
     }
@@ -344,25 +355,30 @@ bool muse_photo_render(const muse_pose_t *p)
     /* The board moved: tipped, Muse looks toward the low side and leans;
      * shaken, it's dizzy for a moment, with stars. */
     muse_photo_part_t motion_eyes = MUSE_PHOTO_PATCH_NONE, motion_mouth = MUSE_PHOTO_PATCH_NONE;
-    float turn = 0;   /* of a full turn */
+    float head_dx = 0;   /* the head's own sideways swing, px */
 #if CONFIG_MUSE_IMU
     muse_motion_t m;
     muse_motion(&m);
     if (m.present) {
         if (m.shake > 0.45f && t > s_dizzy_until) {
-            s_dizzy_until = t + 2.2f;
-            spawn(PART_SPARKLE, s_size * 0.5f, s_size * 0.1f, t, 5);
+            s_dizzy_until = t + 2.4f;
+            spawn(PART_SWOOSH_L, s_size * 0.2f, s_size * 0.3f, t, 1);   /* motion lines beside the head */
+            spawn(PART_SWOOSH_R, s_size * 0.8f, s_size * 0.3f, t, 1);
             s_sfx_pending = MUSE_SFX_BOING;
         }
         if (t < s_dizzy_until) {
-            float left = s_dizzy_until - t, since = 2.2f - left;
-            if (since < 0.9f) {
-                float k = since / 0.9f;
-                turn = k * k * (3.0f - 2.0f * k);   /* one full spin, eased in and out */
+            float left = s_dizzy_until - t, since = 2.4f - left;
+            if (since < 1.1f) {
+                /* His head shakes side to side, quick then settling; the body stays. */
+                head_dx = 10.0f * sinf(TAU * 3.5f * since) * (1.0f - since / 1.1f);
+                motion_eyes = MUSE_PHOTO_EYES_CLOSED;
+                motion_mouth = MUSE_PHOTO_MOUTH_EE;
+            } else {
+                if (since < 1.15f) spawn(PART_SPARKLE, s_size * 0.5f, s_size * 0.08f, t, 4);   /* stars: dizzy */
+                dx += 2.0f * sinf(TAU * 1.2f * t) * (left > 1 ? 1 : left);   /* a woozy sway */
+                motion_eyes = MUSE_PHOTO_EYES_CLOSED;
+                motion_mouth = MUSE_PHOTO_MOUTH_OO;
             }
-            dx += 5.0f * sinf(TAU * 2.5f * t) * (left > 1 ? 1 : left);   /* a wobble */
-            motion_eyes = MUSE_PHOTO_EYES_CLOSED;
-            motion_mouth = MUSE_PHOTO_MOUTH_OO;
         } else {
             dx += 5.0f * m.tilt_x;
             dy += 4.0f * m.tilt_y;
@@ -483,11 +499,11 @@ bool muse_photo_render(const muse_pose_t *p)
 
     int z = (int)lroundf(zoom * 1024), x2 = (int)lroundf(dx * 2), y2 = (int)lroundf(dy * 2);
     int b = (int)lroundf(bright * 16);
-    int tq = (int)lroundf(turn * 1024) & 1023;
-    bool changed = z != s_zoom || x2 != s_dx2 || y2 != s_dy2 || b != s_bright || tq != s_turn || eyes != s_eyes ||
+    int hq = (int)lroundf(head_dx * 2);
+    bool changed = z != s_zoom || x2 != s_dx2 || y2 != s_dy2 || b != s_bright || hq != s_head_dx2 || eyes != s_eyes ||
                    mouth != s_mouth || floating || s_floating;
     s_floating = floating;
-    s_turn = tq;
+    s_head_dx2 = hq;
     s_zoom = z;
     s_dx2 = x2;
     s_dy2 = y2;
@@ -505,7 +521,8 @@ static void draw_particles(uint16_t *row, int y, int x0, int x1)
         const particle_t *q = &s_parts[i];
         float age = s_now - q->born;
         if (!q->on || age < 0) continue;
-        const uint8_t *rows = q->kind == PART_HEART ? HEART : q->kind == PART_ZZZ ? ZZZ : SPARKLE;
+        const uint8_t *rows = q->kind == PART_HEART ? HEART : q->kind == PART_ZZZ ? ZZZ
+                            : q->kind == PART_SWOOSH_L ? SWOOSH_L : q->kind == PART_SWOOSH_R ? SWOOSH_R : SPARKLE;
         int n_rows = q->kind == PART_HEART ? 6 : q->kind == PART_ZZZ ? 5 : 7;
         float px = q->x + q->vx * age + (q->kind == PART_HEART ? 6.0f * sinf(TAU * 1.5f * age) : 0);
         float py = q->y + q->vy * age;
@@ -515,6 +532,7 @@ static void draw_particles(uint16_t *row, int y, int x0, int x1)
         if (r >= n_rows) continue;
         bool fading = age > q->life * 0.7f;   /* fades out as a dither */
         uint16_t c = q->kind == PART_HEART ? HEART_RGB565 : q->kind == PART_ZZZ ? ZZZ_RGB565
+                   : q->kind == PART_SWOOSH_L || q->kind == PART_SWOOSH_R ? SWOOSH_RGB565
                    : (r == n_rows / 2 ? 0xffff : SPARKLE_RGB565);
         for (int col = 0; col < 7; col++) {
             if (!(rows[r] & (0x40 >> col))) continue;
@@ -544,24 +562,6 @@ void muse_photo_scale(uint16_t *dst, int stride_px, int x0, int x1, int y0, int 
     const int32_t fx_fp = (int32_t)(FOCUS_X * side * 65536.0f), fy_fp = (int32_t)(FOCUS_Y * side * 65536.0f);
     const int32_t max_fp = (side - 1) << 16;
 
-    if (s_turn) {
-        /* Spinning: each screen pixel samples the picture rotated about the
-         * centre; a full row is two steps of 16.16 per pixel. */
-        float a = s_turn * (6.2831853f / 1024.0f), c = cosf(a), sn = sinf(a);
-        int32_t ux = (int32_t)(c * step_fp), uy = (int32_t)(sn * step_fp);   /* per pixel across */
-        for (int y = y0; y <= y1; y++) {
-            uint16_t *row = dst + (size_t)(y - y0) * stride_px;
-            float ry = y - cy, rx = x0 - cx;
-            int32_t sx = fx_fp + (int32_t)((rx * c + ry * sn) * step_fp);
-            int32_t sy = fy_fp + (int32_t)((ry * c - rx * sn) * step_fp);
-            for (int x = x0; x <= x1; x++, sx += ux, sy -= uy) {
-                row[x - x0] = sx < 0 || sx > max_fp || sy < 0 || sy > max_fp
-                    ? 0 : muse_photo_px[(size_t)(sy >> 16) * side + (sx >> 16)];
-            }
-            if (s_floating) draw_particles(row, y, x0, x1);
-        }
-        return;
-    }
     for (int y = y0; y <= y1; y++) {
         uint16_t *row = dst + (size_t)(y - y0) * stride_px;
         int32_t sy = fy_fp + (int32_t)((y - cy) * step_fp);
@@ -572,12 +572,20 @@ void muse_photo_scale(uint16_t *dst, int stride_px, int x0, int x1, int y0, int 
         }
         int iy = sy >> 16;
         const uint16_t *src = muse_photo_px + (size_t)iy * side;
+        /* A head shake moves the head's rows alone: fully down to the chin,
+         * fading out through the neck, so the shoulders stay put. */
+        int32_t head_shift = 0;
+        if (s_head_dx2) {
+            float w = (HEAD_NECK_END * side - iy) / ((HEAD_NECK_END - HEAD_CHIN) * side);
+            w = w < 0 ? 0 : w > 1 ? 1 : w;
+            head_shift = (int32_t)(-s_head_dx2 * 0.5f * w * step_fp);
+        }
         /* The face's patches crossing this row: their pixels stand in for the picture's. */
         const muse_photo_patch_t *on[2];
         int n_on = 0;
         if (s_eyes && iy >= s_eyes->y && iy < s_eyes->y + s_eyes->h) on[n_on++] = s_eyes;
         if (s_mouth && iy >= s_mouth->y && iy < s_mouth->y + s_mouth->h) on[n_on++] = s_mouth;
-        int32_t sx = fx_fp + (int32_t)((x0 - cx) * step_fp);
+        int32_t sx = fx_fp + (int32_t)((x0 - cx) * step_fp) + head_shift;
         for (int x = x0; x <= x1; x++, sx += step_fp) {
             uint16_t px = 0;
             if (sx >= 0 && sx <= max_fp) {

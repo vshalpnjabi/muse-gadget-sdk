@@ -29,6 +29,7 @@ typedef struct {
     float tilt_x;   /* -1 .. 1: tipped left .. right since it last rested (a few seconds), as you look at it */
     float tilt_y;   /* -1 .. 1: tipped top edge down .. bottom edge down, likewise */
     float shake;    /* 0 still .. 1 shaken hard; decays over about a second */
+    int rotation;   /* 0, 90, 180 or 270: how far to turn the display to stay upright (held a moment) */
 } muse_motion_t;
 
 /* `bus` is an i2c_master_bus_handle_t. ESP_OK if the sensor answered. */

@@ -56,6 +56,9 @@
 #if CONFIG_MUSE_CLOCK
 #include "muse_clock.h"
 #endif
+#if CONFIG_MUSE_IMU
+#include "muse_imu.h"
+#endif
 #if CONFIG_MUSE_VIDEO
 #include "muse_video.h"
 #endif
@@ -189,6 +192,7 @@ static lv_obj_t *s_meter[METER_SEGS];
 static lv_obj_t *s_speaker;
 static lv_obj_t *s_speaker_icon;
 static lv_obj_t *s_aux_icon;
+static volatile int s_rotate_override = -1;   /* muse_ui_rotate(), -1: as held */
 #if CONFIG_MUSE_CLOCK
 static lv_obj_t *s_clock_lbl, *s_dnd_lbl;
 #endif
@@ -1974,6 +1978,23 @@ static void update_power(float now)
     }
     s_next_power_update = now + 1.0f;
 
+#if CONFIG_MUSE_IMU
+    {
+        /* Auto-rotate: turn the whole screen to how the board is held. */
+        static int shown;
+        muse_motion_t m;
+        muse_motion(&m);
+        int want = muse_settings_autorotate() && m.present ? m.rotation : 0;
+        if (s_rotate_override >= 0) want = s_rotate_override;   /* ">rotate=" on the console */
+        if (want != shown) {
+            lv_display_set_rotation(lv_display_get_default(),
+                                    want == 90 ? LV_DISPLAY_ROTATION_90 : want == 180 ? LV_DISPLAY_ROTATION_180
+                                    : want == 270 ? LV_DISPLAY_ROTATION_270 : LV_DISPLAY_ROTATION_0);
+            lv_obj_invalidate(lv_screen_active());
+            shown = want;
+        }
+    }
+#endif
 #if CONFIG_MUSE_CLOCK
     muse_clock_tick();
     struct tm tm;
@@ -2598,3 +2619,8 @@ void muse_ui_camera_hint(bool visible)
     muse_board->display_unlock();
 }
 #endif
+
+void muse_ui_rotate(int degrees)
+{
+    s_rotate_override = degrees == 0 || degrees == 90 || degrees == 180 || degrees == 270 ? degrees : -1;
+}

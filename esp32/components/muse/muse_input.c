@@ -940,6 +940,10 @@ static bool console_command(char *line, bool whole)
         return true;
     }
 #endif
+    if (!strncmp(line, "rotate=", 7)) {   /* "rotate=90", "rotate=auto" */
+        muse_ui_rotate(strcmp(line + 7, "auto") ? atoi(line + 7) : -1);
+        return true;
+    }
     if (!strncmp(line, "face=", 5)) {
         set_face(line + 5);
         return true;
