@@ -94,6 +94,10 @@
 #if CONFIG_MUSE_ENABLED
 #include "muse_glue.h"
 #include "muse_input.h"
+#if CONFIG_MUSE_CLOCK
+#include "muse_clock.h"
+#include "muse_settings.h"
+#endif
 // Muse joins Wi-Fi from its own settings, before or without pairing.
 #define WIFI_WITHOUT_PAIRING 1
 #else
@@ -1988,6 +1992,62 @@ static cJSON *on_ws_command(
         led_status_show_animation();
         cJSON *result = cJSON_CreateObject();
         cJSON_AddBoolToObject(result, "ok", true);
+        return result;
+    }
+#endif
+#if CONFIG_MUSE_CLOCK
+    if (strcmp(command, "device.dnd") == 0) {
+        const cJSON *on = params ? cJSON_GetObjectItemCaseSensitive(params, "on") : NULL;
+        if (!cJSON_IsBool(on)) return command_error("invalid_params", "on (boolean) is required");
+        muse_settings_set_dnd(cJSON_IsTrue(on));
+        cJSON *result = cJSON_CreateObject();
+        cJSON_AddBoolToObject(result, "ok", true);
+        cJSON *payload = cJSON_AddObjectToObject(result, "payload");
+        cJSON_AddBoolToObject(payload, "dnd", muse_settings_dnd());
+        return result;
+    }
+    if (strcmp(command, "device.sleep_hours") == 0) {
+        const cJSON *from = params ? cJSON_GetObjectItemCaseSensitive(params, "from") : NULL;
+        const cJSON *to = params ? cJSON_GetObjectItemCaseSensitive(params, "to") : NULL;
+        const cJSON *enabled = params ? cJSON_GetObjectItemCaseSensitive(params, "enabled") : NULL;
+        const cJSON *tz = params ? cJSON_GetObjectItemCaseSensitive(params, "timezone") : NULL;
+        if (tz && (!cJSON_IsString(tz) || !tz->valuestring[0] || strlen(tz->valuestring) > MUSE_TZ_MAX ||
+                   strpbrk(tz->valuestring, " \"\\"))) {
+            return command_error("invalid_params", "timezone must be a POSIX TZ string, up to 47 characters");
+        }
+        if (enabled && !cJSON_IsBool(enabled)) return command_error("invalid_params", "enabled must be a boolean");
+        bool clear = enabled && cJSON_IsFalse(enabled);
+        if (!clear && (from || to)) {
+            if (!cJSON_IsNumber(from) || !cJSON_IsNumber(to) || from->valueint < 0 || from->valueint > 23 ||
+                to->valueint < 0 || to->valueint > 23 || from->valueint == to->valueint) {
+                return command_error("invalid_params", "from and to are both needed: different hours, 0-23");
+            }
+        }
+        if (tz) muse_settings_set_tz(tz->valuestring);
+        if (clear) {
+            muse_settings_set_sleep_hours(-1, -1);
+        } else if (from) {
+            muse_settings_set_sleep_hours(from->valueint, to->valueint);
+        }
+        cJSON *result = cJSON_CreateObject();
+        cJSON_AddBoolToObject(result, "ok", true);
+        cJSON *payload = cJSON_AddObjectToObject(result, "payload");
+        int f = muse_settings_sleep_from(), t = muse_settings_sleep_to();
+        if (f >= 0) {
+            cJSON_AddNumberToObject(payload, "from", f);
+            cJSON_AddNumberToObject(payload, "to", t);
+        } else {
+            cJSON_AddBoolToObject(payload, "enabled", false);
+        }
+        char zone[MUSE_TZ_MAX + 1];
+        muse_settings_tz(zone);
+        cJSON_AddStringToObject(payload, "timezone", zone);
+        struct tm now;
+        if (muse_clock_now(&now)) {
+            char local[8];
+            snprintf(local, sizeof(local), "%02d:%02d", now.tm_hour, now.tm_min);
+            cJSON_AddStringToObject(payload, "local_time", local);
+        }
         return result;
     }
 #endif

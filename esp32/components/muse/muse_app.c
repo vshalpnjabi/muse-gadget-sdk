@@ -39,6 +39,10 @@
 #include "muse_review.h"
 #endif
 
+#if CONFIG_MUSE_CLOCK
+#include "muse_clock.h"
+#endif
+
 static const char *TAG = "muse";
 
 /* Applies saved settings to hardware; runs in whichever task changed them. */
@@ -60,6 +64,11 @@ static void on_setting(muse_setting_t what)
     case MUSE_SETTING_HATCH:
         muse_hatch_config_changed();
         break;
+#if CONFIG_MUSE_CLOCK
+    case MUSE_SETTING_QUIET:
+        muse_clock_apply_tz();   /* the zone may have changed */
+        break;
+#endif
     default:
         break;   /* brightness, sleep and the speaker are polled where they're used */
     }
@@ -73,6 +82,9 @@ void muse_app_run(const muse_board_t *board)
     ESP_LOGI(TAG, "board: %s", board->name);
     ESP_ERROR_CHECK(board->init());
     ESP_ERROR_CHECK(muse_settings_init());
+#if CONFIG_MUSE_CLOCK
+    muse_clock_start();   /* syncs once Wi-Fi is up */
+#endif
     muse_settings_set_listener(on_setting);
     muse_state_init();
 #if CONFIG_MUSE_BOARD_SENSECAP_WATCHER

@@ -68,6 +68,9 @@ static atomic_int s_avatar = MUSE_AVATAR_PHOTO;
 static atomic_int s_avatar = MUSE_AVATAR_PIXEL;
 #endif
 static atomic_bool s_captions = true;
+static atomic_bool s_dnd;
+static atomic_int s_sleep_from = -1, s_sleep_to = -1;
+static char s_tz[MUSE_TZ_MAX + 1] = CONFIG_MUSE_TIMEZONE;   /* under s_lock */
 static nvs_handle_t s_nvs;
 static muse_setting_cb_t s_listener;
 
@@ -140,6 +143,19 @@ esp_err_t muse_settings_init(void)
     if (nvs_get_u8(s_nvs, "captions", &b) == ESP_OK) {
         atomic_store(&s_captions, b != 0);
     }
+    if (nvs_get_u8(s_nvs, "dnd", &b) == ESP_OK) {
+        atomic_store(&s_dnd, b != 0);
+    }
+    if (nvs_get_u8(s_nvs, "sl_from", &b) == ESP_OK) {
+        atomic_store(&s_sleep_from, b < 24 ? b : -1);
+    }
+    if (nvs_get_u8(s_nvs, "sl_to", &b) == ESP_OK) {
+        atomic_store(&s_sleep_to, b < 24 ? b : -1);
+    }
+    size_t tz_len = sizeof(s_tz);
+    if (nvs_get_str(s_nvs, "tz", s_tz, &tz_len) != ESP_OK) {
+        strlcpy(s_tz, CONFIG_MUSE_TIMEZONE, sizeof(s_tz));
+    }
 #if MUSE_HAS_PHOTO_AVATAR
     if (nvs_get_u8(s_nvs, "avatar", &b) == ESP_OK && b < MUSE_AVATAR_COUNT) {
         atomic_store(&s_avatar, b);
@@ -193,6 +209,43 @@ void muse_settings_set_voice_notes(bool on)
 }
 
 bool muse_settings_captions(void) { return atomic_load(&s_captions); }
+
+bool muse_settings_dnd(void) { return atomic_load(&s_dnd); }
+
+void muse_settings_set_dnd(bool on)
+{
+    atomic_store(&s_dnd, on);
+    save_u8("dnd", on);
+    notify(MUSE_SETTING_QUIET);
+}
+
+int muse_settings_sleep_from(void) { return atomic_load(&s_sleep_from); }
+int muse_settings_sleep_to(void) { return atomic_load(&s_sleep_to); }
+
+void muse_settings_set_sleep_hours(int from, int to)
+{
+    if (from < 0 || from > 23 || to < 0 || to > 23 || from == to) {
+        from = to = -1;   /* none */
+    }
+    atomic_store(&s_sleep_from, from);
+    atomic_store(&s_sleep_to, to);
+    save_u8("sl_from", (uint8_t)(from < 0 ? 255 : from));
+    save_u8("sl_to", (uint8_t)(to < 0 ? 255 : to));
+    notify(MUSE_SETTING_QUIET);
+}
+
+void muse_settings_tz(char out[MUSE_TZ_MAX + 1])
+{
+    LOCKED(strlcpy(out, s_tz, MUSE_TZ_MAX + 1));
+}
+
+void muse_settings_set_tz(const char *tz)
+{
+    LOCKED(strlcpy(s_tz, tz && tz[0] ? tz : CONFIG_MUSE_TIMEZONE, sizeof(s_tz)));
+    nvs_set_str(s_nvs, "tz", s_tz);
+    nvs_commit(s_nvs);
+    notify(MUSE_SETTING_QUIET);
+}
 
 void muse_settings_set_captions(bool on)
 {

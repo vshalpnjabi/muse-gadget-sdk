@@ -48,6 +48,10 @@ typedef enum {
     MUSE_PHOTO_MOUTH_SMILE,   /* an idle smile */
     MUSE_PHOTO_EYES_WINK,     /* the screen's right eye closed: a touch reaction */
     MUSE_PHOTO_EYES_WINK_L,   /* the screen's left eye closed */
+    MUSE_PHOTO_EYES_UP,       /* thinking: a look up */
+    MUSE_PHOTO_EYES_DOWN,     /* working: eyes on the task */
+    MUSE_PHOTO_MOUTH_OO,      /* lip shapes for speech */
+    MUSE_PHOTO_MOUTH_EE,
 } muse_photo_part_t;
 
 typedef struct {
@@ -66,6 +70,12 @@ extern const int muse_photo_patch_count;
  * playful head shake. now_s: any clock in seconds, to tell quick taps.
  * Returns the touch sound to play (MUSE_SFX_*), or -1. */
 int muse_photo_touch(float u, float v, float now_s);
+
+/* Sleep hours, Muse idle: it sleeps on the face (eyes shut, slow breaths, z's). */
+void muse_photo_set_sleeping(bool on);
+
+/* A sound the face wants played (MUSE_SFX_*: being shaken, say), once, or -1. */
+int muse_photo_take_sound(void);
 
 /* Moves the picture for this frame. True if what it shows changed. */
 bool muse_photo_render(const muse_pose_t *pose);

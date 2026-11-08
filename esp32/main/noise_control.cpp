@@ -1531,6 +1531,42 @@ static char *build_register_json(void) {
     }
 #endif
 
+#if CONFIG_MUSE_CLOCK
+    {
+        cJSON *dnd_required = cJSON_CreateObject();
+        cJSON *on = cJSON_CreateObject();
+        cJSON_AddStringToObject(on, "type", "boolean");
+        cJSON_AddStringToObject(on, "description", "true: do not disturb on.");
+        cJSON_AddItemToObject(dnd_required, "on", on);
+        add_command(commands, "device.dnd",
+                    "Do not disturb: the device's own sounds (touch, shake) "
+                    "off. Its answers to the user still play.",
+                    dnd_required, nullptr);
+        cJSON *sleep_optional = cJSON_CreateObject();
+        const char *const hours[][2] = {
+            { "from", "Hour sleep starts, 0-23, local time." },
+            { "to", "Hour it ends, 0-23; may pass midnight." },
+        };
+        for (const auto &h : hours) {
+            cJSON *p = cJSON_CreateObject();
+            cJSON_AddStringToObject(p, "type", "integer");
+            cJSON_AddStringToObject(p, "description", h[1]);
+            cJSON_AddItemToObject(sleep_optional, h[0], p);
+        }
+        cJSON *enabled = cJSON_CreateObject();
+        cJSON_AddStringToObject(enabled, "type", "boolean");
+        cJSON_AddStringToObject(enabled, "description", "false: no sleep hours.");
+        cJSON_AddItemToObject(sleep_optional, "enabled", enabled);
+        cJSON_AddItemToObject(sleep_optional, "timezone",
+                              string_param("The user's zone as a POSIX TZ string, "
+                                           "e.g. PST8PDT,M3.2.0,M11.1.0."));
+        add_command(commands, "device.sleep_hours",
+                    "Set the avatar's sleep hours (it sleeps on screen, quiet, "
+                    "dim) and/or the time zone. Returns them and the local time.",
+                    nullptr, sleep_optional);
+    }
+#endif
+
 #if CONFIG_HOMEHUB_VOICE
     cJSON *volume_optional = cJSON_CreateObject();
     cJSON *volume_param = cJSON_CreateObject();

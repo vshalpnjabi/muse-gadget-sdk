@@ -38,6 +38,9 @@
 
 #include "muse_board.h"
 #include "muse_lcd_bands.h"
+#if CONFIG_MUSE_IMU
+#include "muse_imu.h"
+#endif
 #include "muse_mem.h"
 #include "muse_pmu.h"
 
@@ -63,6 +66,9 @@ static esp_err_t init(void)
 {
     ESP_RETURN_ON_ERROR(bsp_i2c_init(), TAG, "i2c init");
     ESP_RETURN_ON_ERROR(muse_gpio_button_init(&s_boot, GPIO_NUM_0), TAG, "boot button");
+#if CONFIG_MUSE_IMU
+    muse_imu_init(bsp_i2c_get_handle());   /* the face's tilt and shake; logs if it isn't there */
+#endif
 #if CONFIG_MUSE_BOARD_WAVESHARE_S3_175
     /* Only the PMU sees PWR: latch its edges for poll_buttons(). */
     esp_err_t err = muse_pmu_init(bsp_i2c_get_handle(), true);

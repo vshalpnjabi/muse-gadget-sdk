@@ -229,6 +229,38 @@ def face_patches(im, eyes, eye_size, mouth):
             pts = [(ex + k, ey + 1 + 3.5 * (1 - (k / rx) ** 2)) for k in range(-rx + 1, rx)]
             d.line(pts, fill=lash, width=2)
             out.append((x0, y0, p))
+    if eyes:
+        # Looking up (thinking) and down (working): the irises shifted inside the eye.
+        lx, ly, rx_, ry_ = eyes
+        x0, y0 = min(lx, rx_) - rx - 4, min(ly, ry_) - ry - 4
+        x1, y1 = max(lx, rx_) + rx + 5, max(ly, ry_) + ry + 5
+        for dirn in (-1, 1):   # up, down
+            p = im.crop((x0, y0, x1, y1)).copy()
+            src = im.crop((x0, y0, x1, y1))
+            for cx, cy in ((lx, ly), (rx_, ry_)):
+                ex, ey = cx - x0, cy - y0
+                irx, iry = max(rx - 4, 3), max(ry - 2, 3)
+                white = max((src.getpixel((ex + k, ey)) for k in range(-rx + 2, rx - 1)), key=sum)
+                for yy in range(ey - iry, ey + iry + 1):
+                    for xx in range(ex - irx, ex + irx + 1):
+                        if ((xx - ex) / irx) ** 2 + ((yy - ey) / iry) ** 2 > 1:
+                            continue
+                        sy = yy - dirn * 2
+                        inside = ((xx - ex) / irx) ** 2 + ((sy - ey) / iry) ** 2 <= 1
+                        p.putpixel((xx, yy), src.getpixel((xx, sy)) if inside else white)
+            out.append((x0, y0, p))
+    if mouth:
+        # Lip shapes for speech: a round "oo" and a wide "ee", beside the open sizes.
+        mx, my = mouth
+        x0, y0, x1, y1 = mx - 18, my - 8, mx + 19, my + 12
+        lip = _darkest(im, (mx - 6, my - 2, mx + 6, my + 3))
+        dark = (max(lip[0] - 10, 40), max(lip[1] - 25, 12), max(lip[2] - 25, 12))
+        for w2, h2 in ((4, 4), (12, 2)):   # oo, ee
+            p = im.crop((x0, y0, x1, y1)).copy()
+            d = ImageDraw.Draw(p)
+            ex, ey = mx - x0, my - y0 + h2 // 2
+            d.ellipse((ex - w2, ey - h2, ex + w2, ey + h2), fill=(110, 40, 40), outline=dark)
+            out.append((x0, y0, p))
     return [(x, y, p.size[0], p.size[1], p) for x, y, p in out]
 
 
@@ -326,7 +358,8 @@ def main():
                   "MUSE_PHOTO_EYES_RIGHT"] if eyes else []) + \
                 (["MUSE_PHOTO_MOUTH_1", "MUSE_PHOTO_MOUTH_2", "MUSE_PHOTO_MOUTH_3",
                   "MUSE_PHOTO_MOUTH_SMILE"] if mouth else []) + \
-                (["MUSE_PHOTO_EYES_WINK", "MUSE_PHOTO_EYES_WINK_L"] if eyes else [])
+                (["MUSE_PHOTO_EYES_WINK", "MUSE_PHOTO_EYES_WINK_L", "MUSE_PHOTO_EYES_UP", "MUSE_PHOTO_EYES_DOWN"] if eyes else []) + \
+                (["MUSE_PHOTO_MOUTH_OO", "MUSE_PHOTO_MOUTH_EE"] if mouth else [])
         f.write("const muse_photo_patch_t muse_photo_patches[] = {\n")
         for k, ((x, y, w, h, p), kind) in enumerate(zip(patches, kinds)):
             f.write(f"    {{ {kind}, {x}, {y}, {w}, {h}, patch{k} }},\n")

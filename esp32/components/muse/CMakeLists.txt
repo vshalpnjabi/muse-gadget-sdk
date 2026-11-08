@@ -88,6 +88,12 @@ if(CONFIG_MUSE_ENABLED)
         list(APPEND srcs "muse_photo.c" "avatar/muse_photo_img.c")
         set(muse_photo_avatar 1)
     endif()
+    if(CONFIG_MUSE_IMU)
+        list(APPEND srcs "muse_imu.c")   # the motion sensor, for the face
+    endif()
+    if(CONFIG_MUSE_CLOCK)
+        list(APPEND srcs "muse_clock.c")   # the time, sleep hours, do not disturb
+    endif()
     if(CONFIG_MUSE_BOARD_WAVESHARE_S3_175C OR CONFIG_MUSE_BOARD_WAVESHARE_S3_175)
         # One driver: the 1.75 differs only in pins (its BSP's) and its PWR key.
         list(APPEND srcs "boards/board_waveshare_s3_175c.c" "boards/muse_lcd_bands.c")

@@ -49,6 +49,7 @@ typedef enum {
     MUSE_SETTING_VOICE_NOTES,
     MUSE_SETTING_AVATAR,
     MUSE_SETTING_CAPTIONS,
+    MUSE_SETTING_QUIET,         /* do not disturb, sleep hours or the time zone */
 } muse_setting_t;
 
 /* Which avatar the face shows (Settings > Appearance): the drawn pixel one
@@ -80,6 +81,20 @@ void muse_settings_set_avatar(int which);
  * captions (CONNECTING, PUSH TO TALK, errors) still show. On by default. */
 bool muse_settings_captions(void);
 void muse_settings_set_captions(bool on);
+
+/* Do not disturb (Settings > Sleep, or asked of Muse): the board makes none
+ * of its own sounds (touch, motion, chirps); Muse's answers to you still play. */
+bool muse_settings_dnd(void);
+void muse_settings_set_dnd(bool on);
+/* Sleep hours, local time: from `from` o'clock to `to` o'clock (it may wrap
+ * past midnight); -1 for none. Muse sleeps on the face, quiet, the screen dim. */
+int muse_settings_sleep_from(void);
+int muse_settings_sleep_to(void);
+void muse_settings_set_sleep_hours(int from, int to);
+/* The time zone, as a POSIX TZ string (e.g. PST8PDT,M3.2.0,M11.1.0). */
+#define MUSE_TZ_MAX 47
+void muse_settings_tz(char out[MUSE_TZ_MAX + 1]);
+void muse_settings_set_tz(const char *tz);
 
 void muse_settings_wifi(char ssid[MUSE_SSID_MAX + 1], char pass[MUSE_PASS_MAX + 1]);
 void muse_settings_hatch_host(char out[MUSE_HOST_MAX + 1]);

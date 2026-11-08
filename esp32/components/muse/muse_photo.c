@@ -27,6 +27,10 @@
 #include "muse_photo.h"
 
 #include "muse_audio.h"   /* MUSE_SFX_*, for a touch's sound */
+#include "sdkconfig.h"
+#if CONFIG_MUSE_IMU
+#include "muse_imu.h"
+#endif
 
 #include <math.h>
 #include <string.h>
@@ -143,8 +147,26 @@ static float s_react_t0;                     /* when it began, on render's clock
 static bool s_touch_new;                     /* muse_photo_touch() since the last frame */
 static float s_tap_at[3] = { -9, -9, -9 };   /* the last taps, on the UI's clock */
 static float s_touch_u, s_touch_v;
+#if CONFIG_MUSE_IMU
+static float s_dizzy_until;          /* shaken: dizzy till then */
+#endif
+static bool s_sleeping;             /* sleep hours, idle (muse_photo_set_sleeping) */
+static float s_next_z;
+static int s_sfx_pending = -1;       /* a sound for the UI to play (muse_photo_take_sound) */
 
-enum { PART_HEART, PART_SPARKLE };
+void muse_photo_set_sleeping(bool on)
+{
+    s_sleeping = on;
+}
+
+int muse_photo_take_sound(void)
+{
+    int k = s_sfx_pending;
+    s_sfx_pending = -1;
+    return k;
+}
+
+enum { PART_HEART, PART_SPARKLE, PART_ZZZ };
 typedef struct {
     float x, y, vx, vy, born, life;   /* canvas px, px/s, s */
     uint8_t kind;
@@ -158,8 +180,10 @@ static int s_spawn_kind = -1, s_spawn_n;
 #define SPRITE_SCALE 3
 static const uint8_t HEART[6] = { 0x36, 0x7f, 0x7f, 0x3e, 0x1c, 0x08 };
 static const uint8_t SPARKLE[7] = { 0x08, 0x08, 0x1c, 0x7f, 0x1c, 0x08, 0x08 };
+static const uint8_t ZZZ[5] = { 0x3e, 0x04, 0x08, 0x10, 0x3e };   /* a "z", asleep */
 #define HEART_RGB565 0xfa4f     /* pink-red */
 #define SPARKLE_RGB565 0xfeea   /* warm yellow */
+#define ZZZ_RGB565 0xa69f       /* pale blue */
 
 static void spawn(int kind, float x, float y, float t, int n)
 {
@@ -172,9 +196,14 @@ static void spawn(int kind, float x, float y, float t, int n)
             q->x = x + (next_rand() - 0.5f) * 60.0f;
             q->y = y + (next_rand() - 0.5f) * 30.0f;
             q->vx = (next_rand() - 0.5f) * 30.0f;
-            q->vy = kind == PART_HEART ? -55.0f - 25.0f * next_rand() : -15.0f * next_rand();
+            q->vy = kind == PART_HEART ? -55.0f - 25.0f * next_rand() : kind == PART_ZZZ ? -22.0f : -15.0f * next_rand();
+            if (kind == PART_ZZZ) {
+                q->x = x;
+                q->y = y;
+                q->vx = 14.0f;
+            }
             q->born = t + 0.12f * k;   /* staggered, not all at once */
-            q->life = kind == PART_HEART ? 1.4f : 0.9f;
+            q->life = kind == PART_HEART ? 1.4f : kind == PART_ZZZ ? 2.6f : 0.9f;
             break;
         }
     }
@@ -220,11 +249,42 @@ int muse_photo_touch(float u, float v, float now)
     return next_rand() < 0.8f ? sfx : -1;
 }
 
+/* Lip sync: the mouth follows the voice's loudness frame by frame, and each
+ * syllable (a rise out of near-silence) takes its own shape at middle
+ * loudness, "ah", "ee" or "oo", so speech doesn't flap one mouth. A sharp
+ * rise is emphasis: a small nod. */
+static void speech_mouth(float lvl, float t, muse_photo_part_t *mouth, float *dy)
+{
+    static float prev;
+    static unsigned syllable;
+    static bool open;
+    if (!open && lvl > 0.14f) {
+        open = true;
+        syllable++;
+    } else if (open && lvl < 0.07f) {
+        open = false;
+    }
+    static const muse_photo_part_t MID[] = { MUSE_PHOTO_MOUTH_2, MUSE_PHOTO_MOUTH_EE, MUSE_PHOTO_MOUTH_2,
+                                             MUSE_PHOTO_MOUTH_OO };
+    static const muse_photo_part_t LOW[] = { MUSE_PHOTO_MOUTH_1, MUSE_PHOTO_MOUTH_1, MUSE_PHOTO_MOUTH_OO };
+    unsigned v = syllable * 2654435761u >> 28;   /* a stable pick per syllable */
+    *mouth = lvl > 0.6f ? MUSE_PHOTO_MOUTH_3
+           : lvl > 0.32f ? MID[v % 4]
+           : lvl > 0.12f ? LOW[v % 3]
+           : lvl > 0.05f ? MUSE_PHOTO_MOUTH_1
+           : MUSE_PHOTO_PATCH_NONE;
+    if (lvl - prev > 0.18f) *dy -= 2.0f;   /* emphasis */
+    *dy -= 1.0f * lvl;
+    prev = lvl;
+    (void)t;
+}
+
 bool muse_photo_render(const muse_pose_t *p)
 {
     float t = p->t, mt = p->mode_t, lvl = clampf(p->level, 0, 1);
     float zoom = 1.0f, dx = 0, dy = 0, bright = 1.0f;
     float breath = sinf(TAU * t / 4.5f);
+    muse_photo_part_t mode_eyes = MUSE_PHOTO_PATCH_NONE, mode_mouth = MUSE_PHOTO_PATCH_NONE;
     switch (p->mode) {
     case MUSE_MODE_LISTENING: {
         float lean = clampf(mt / 0.4f, 0, 1);              /* leans in a touch */
@@ -232,14 +292,30 @@ bool muse_photo_render(const muse_pose_t *p)
         dy = 0.8f * breath;
         break;
     }
-    case MUSE_MODE_THINKING: {
-        float rate = p->working > 0.5f ? 2.2f : 3.5f;      /* working sways quicker */
-        dx = 2.0f * sinf(TAU * t / rate);
-        dy = 0.6f * breath;
+    case MUSE_MODE_THINKING:
+        if (p->working > 0.5f) {
+            /* Working: eyes down on the task, a small typing bob, a glance up at you now and then. */
+            float ph = fmodf(mt, 6.0f);
+            mode_eyes = ph < 5.2f ? MUSE_PHOTO_EYES_DOWN : MUSE_PHOTO_PATCH_NONE;
+            dy = 1.5f + 0.6f * fabsf(sinf(TAU * 3.0f * t));
+            dx = 1.0f * sinf(TAU * t / 2.2f);
+        } else {
+            /* Thinking: a look up, then aside, then back to you. */
+            float ph = fmodf(mt, 5.0f);
+            mode_eyes = ph < 2.0f ? MUSE_PHOTO_EYES_UP
+                      : ph < 2.6f ? MUSE_PHOTO_PATCH_NONE
+                      : ph < 3.6f ? ((int)(mt / 5.0f) & 1 ? MUSE_PHOTO_EYES_LEFT : MUSE_PHOTO_EYES_RIGHT)
+                      : MUSE_PHOTO_PATCH_NONE;
+            dx = 2.0f * sinf(TAU * t / 3.5f);
+            dy = 0.6f * breath - (ph < 2.0f ? 1.0f : 0.0f);   /* chin up a little as it looks up */
+        }
         break;
-    }
     case MUSE_MODE_SPEAKING:
-        dy = -1.5f * lvl + 0.6f * breath;                  /* a small nod with the words */
+        speech_mouth(lvl, t, &mode_mouth, &dy);
+        dy += 0.6f * breath;
+        if (fmodf(mt, 7.0f) > 5.8f) {
+            mode_eyes = (int)(mt / 7.0f) & 1 ? MUSE_PHOTO_EYES_LEFT : MUSE_PHOTO_EYES_RIGHT;   /* a glance aside */
+        }
         break;
     case MUSE_MODE_ERROR:
         dx = 4.0f * sinf(TAU * 7.0f * mt) * expf(-3.0f * mt);   /* a short shake */
@@ -263,6 +339,36 @@ bool muse_photo_render(const muse_pose_t *p)
             spawn(PART_HEART, s_touch_u * s_size, s_touch_v * s_size, t, s_spawn_n);
         }
     }
+
+    /* The board moved: tipped, Muse looks toward the low side and leans;
+     * shaken, it's dizzy for a moment, with stars. */
+    muse_photo_part_t motion_eyes = MUSE_PHOTO_PATCH_NONE, motion_mouth = MUSE_PHOTO_PATCH_NONE;
+#if CONFIG_MUSE_IMU
+    muse_motion_t m;
+    muse_motion(&m);
+    if (m.present) {
+        if (m.shake > 0.45f && t > s_dizzy_until) {
+            s_dizzy_until = t + 2.2f;
+            spawn(PART_SPARKLE, s_size * 0.5f, s_size * 0.1f, t, 5);
+            s_sfx_pending = MUSE_SFX_BOING;
+        }
+        if (t < s_dizzy_until) {
+            float left = s_dizzy_until - t;
+            dx += 5.0f * sinf(TAU * 2.5f * t) * (left > 1 ? 1 : left);   /* a wobble */
+            motion_eyes = MUSE_PHOTO_EYES_CLOSED;
+            motion_mouth = MUSE_PHOTO_MOUTH_OO;
+        } else {
+            dx += 5.0f * m.tilt_x;
+            dy += 4.0f * m.tilt_y;
+            float ax = fabsf(m.tilt_x), ay = fabsf(m.tilt_y);
+            if (ax > 0.3f && ax >= ay) {
+                motion_eyes = m.tilt_x > 0 ? MUSE_PHOTO_EYES_RIGHT : MUSE_PHOTO_EYES_LEFT;
+            } else if (ay > 0.3f) {
+                motion_eyes = m.tilt_y > 0 ? MUSE_PHOTO_EYES_DOWN : MUSE_PHOTO_EYES_UP;
+            }
+        }
+    }
+#endif
 
     bool happy = p->happy > 0.25f;
     muse_photo_part_t pet_eyes = MUSE_PHOTO_EYES_HAPPY, pet_mouth = MUSE_PHOTO_MOUTH_1;
@@ -309,7 +415,19 @@ bool muse_photo_render(const muse_pose_t *p)
         }
     }
     muse_photo_part_t idle_eyes = MUSE_PHOTO_PATCH_NONE, idle_mouth = MUSE_PHOTO_PATCH_NONE;
-    if (p->mode == MUSE_MODE_IDLE && !happy) {
+    if (s_sleeping && p->mode == MUSE_MODE_IDLE && !happy) {
+        /* Asleep: eyes shut, slow deep breaths, a z drifting up now and then. */
+        float deep = sinf(TAU * t / 6.0f);
+        zoom = 1.0f + 0.012f * deep;
+        dy = 2.0f * deep + 2.0f;
+        idle_eyes = MUSE_PHOTO_EYES_CLOSED;
+        if (t >= s_next_z) {
+            spawn(PART_ZZZ, s_size * 0.66f, s_size * 0.18f, t, 1);
+            s_next_z = t + 1.5f;
+        }
+        s_act = ACT_NONE;
+        s_next_act = t + 4.0f;
+    } else if (p->mode == MUSE_MODE_IDLE && !happy) {
         bool was = s_act != ACT_NONE;
         idle_life(t, mt, &dx, &dy, &idle_eyes, &idle_mouth);
         if (!was && s_act != ACT_NONE && next_rand() < 0.35f) {
@@ -330,16 +448,21 @@ bool muse_photo_render(const muse_pose_t *p)
         eyes = pet_eyes == MUSE_PHOTO_PATCH_NONE ? NULL : patch(pet_eyes);
     } else if (t < s_blink_end || (p->mode == MUSE_MODE_OFF && mt > 0.3f)) {
         eyes = patch(MUSE_PHOTO_EYES_CLOSED);
+    } else if (motion_eyes != MUSE_PHOTO_PATCH_NONE) {
+        eyes = patch(motion_eyes);
+    } else if (mode_eyes != MUSE_PHOTO_PATCH_NONE) {
+        eyes = patch(mode_eyes);
     } else if (idle_eyes != MUSE_PHOTO_PATCH_NONE) {
         eyes = patch(idle_eyes);
     }
     /* Mouth: open with the voice, else the reaction's or the idle one's. */
     const muse_photo_patch_t *mouth = NULL;
     if (p->mode == MUSE_MODE_SPEAKING) {
-        mouth = lvl > 0.55f ? patch(MUSE_PHOTO_MOUTH_3) : lvl > 0.25f ? patch(MUSE_PHOTO_MOUTH_2)
-              : lvl > 0.06f ? patch(MUSE_PHOTO_MOUTH_1) : NULL;
+        mouth = mode_mouth == MUSE_PHOTO_PATCH_NONE ? NULL : patch(mode_mouth);
     } else if (happy) {
         mouth = patch(pet_mouth);
+    } else if (motion_mouth != MUSE_PHOTO_PATCH_NONE) {
+        mouth = patch(motion_mouth);
     } else if (idle_mouth != MUSE_PHOTO_PATCH_NONE) {
         mouth = patch(idle_mouth);
     }
@@ -374,8 +497,8 @@ static void draw_particles(uint16_t *row, int y, int x0, int x1)
         const particle_t *q = &s_parts[i];
         float age = s_now - q->born;
         if (!q->on || age < 0) continue;
-        const uint8_t *rows = q->kind == PART_HEART ? HEART : SPARKLE;
-        int n_rows = q->kind == PART_HEART ? 6 : 7;
+        const uint8_t *rows = q->kind == PART_HEART ? HEART : q->kind == PART_ZZZ ? ZZZ : SPARKLE;
+        int n_rows = q->kind == PART_HEART ? 6 : q->kind == PART_ZZZ ? 5 : 7;
         float px = q->x + q->vx * age + (q->kind == PART_HEART ? 6.0f * sinf(TAU * 1.5f * age) : 0);
         float py = q->y + q->vy * age;
         int left = (int)px - 7 * SPRITE_SCALE / 2, top = (int)py - n_rows * SPRITE_SCALE / 2;
@@ -383,7 +506,8 @@ static void draw_particles(uint16_t *row, int y, int x0, int x1)
         int r = (y - top) / SPRITE_SCALE;
         if (r >= n_rows) continue;
         bool fading = age > q->life * 0.7f;   /* fades out as a dither */
-        uint16_t c = q->kind == PART_HEART ? HEART_RGB565 : (r == n_rows / 2 ? 0xffff : SPARKLE_RGB565);
+        uint16_t c = q->kind == PART_HEART ? HEART_RGB565 : q->kind == PART_ZZZ ? ZZZ_RGB565
+                   : (r == n_rows / 2 ? 0xffff : SPARKLE_RGB565);
         for (int col = 0; col < 7; col++) {
             if (!(rows[r] & (0x40 >> col))) continue;
             for (int k = 0; k < SPRITE_SCALE; k++) {

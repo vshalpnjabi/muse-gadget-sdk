@@ -1383,6 +1383,50 @@ static void on_sleep_now(lv_event_t *e)
     muse_state_set_asleep(true);
 }
 
+#if CONFIG_MUSE_CLOCK
+static lv_obj_t *s_hours_sw, *s_from_sl, *s_to_sl, *s_from_val, *s_to_val;
+
+static void on_dnd_sw(lv_event_t *e)
+{
+    muse_settings_set_dnd(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
+}
+
+static void hour_text(lv_obj_t *lbl, int h)
+{
+    char text[12];
+    snprintf(text, sizeof(text), "%d %s", h % 12 ? h % 12 : 12, h < 12 ? "am" : "pm");
+    set_text(lbl, text);
+}
+
+static void show_hours(void)
+{
+    hour_text(s_from_val, lv_slider_get_value(s_from_sl));
+    hour_text(s_to_val, lv_slider_get_value(s_to_sl));
+}
+
+/* The switch or either slider: store the hours, or none. */
+static void save_hours(void)
+{
+    bool on = lv_obj_has_state(s_hours_sw, LV_STATE_CHECKED);
+    int from = lv_slider_get_value(s_from_sl), to = lv_slider_get_value(s_to_sl);
+    muse_settings_set_sleep_hours(on ? from : -1, on ? to : -1);
+}
+
+static void on_hours_sw(lv_event_t *e)
+{
+    (void)e;
+    save_hours();
+}
+
+static void on_hours_sl(lv_event_t *e)
+{
+    show_hours();
+    if (lv_event_get_code(e) == LV_EVENT_RELEASED) {
+        save_hours();
+    }
+}
+#endif
+
 static void build_sleep_page(lv_obj_t *tile)
 {
     lv_obj_t *list;
@@ -1396,6 +1440,21 @@ static void build_sleep_page(lv_obj_t *tile)
     }
     button(list, LV_SYMBOL_EYE_CLOSE "  Sleep now", COLOR_ACCENT, on_sleep_now, NULL);
     note(list, "Tap the screen or press either button to wake.");
+#if CONFIG_MUSE_CLOCK
+    switch_row(list, "Do not disturb", muse_settings_dnd(), on_dnd_sw);
+    note(list, "No sounds of the board's own (touches, shakes). Muse still answers you.");
+    int from = muse_settings_sleep_from(), to = muse_settings_sleep_to();
+    s_hours_sw = switch_row(list, "Sleep hours", from >= 0, on_hours_sw);
+    s_from_sl = slider(list, "From", 0, 23, from >= 0 ? from : 22, &s_from_val, on_hours_sl);
+    s_to_sl = slider(list, "To", 0, 23, to >= 0 ? to : 7, &s_to_val, on_hours_sl);
+    show_hours();
+    char tz[MUSE_TZ_MAX + 1];
+    muse_settings_tz(tz);
+    char line[160];
+    snprintf(line, sizeof(line), "Muse sleeps on the face, quiet, the screen dim. Time zone: %s. "
+             "Or tell Muse your sleep hours.", tz);
+    note(list, line);
+#endif
 }
 
 static const char *sleep_name(int secs)

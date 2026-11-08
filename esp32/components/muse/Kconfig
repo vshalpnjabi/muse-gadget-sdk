@@ -433,6 +433,32 @@ menu "Muse"
             them. Needs PSRAM. Without it, voice notes go over Home Link's own
             session to its paired VM and replies are shown as text.
 
+    config MUSE_CLOCK
+        bool "Clock, sleep hours and do not disturb"
+        default n
+        help
+            Sets the time from the internet once Wi-Fi is up and shows it on
+            the face. Settings > Sleep gains Do not disturb (the board's own
+            sounds off) and sleep hours (Muse sleeps on the face, quiet, the
+            screen dim); Muse can set both, and the time zone, for you.
+
+    config MUSE_TIMEZONE
+        string "Time zone (POSIX TZ)"
+        default "UTC0"
+        help
+            The local time's rule, e.g. PST8PDT,M3.2.0,M11.1.0 for US
+            Pacific or CET-1CEST,M3.5.0,M10.5.0/3 for central Europe. Muse
+            can change it (device.sleep_hours).
+
+    config MUSE_IMU
+        bool "Motion sensor: Muse reacts to tilting and shaking"
+        depends on MUSE_BOARD_WAVESHARE_S3_175C || MUSE_BOARD_WAVESHARE_S3_175
+        default n
+        help
+            Reads the board's QMI8658 on its I2C bus at 50 Hz: tipped, the
+            photo face looks toward the low side and leans; shaken, it gets
+            dizzy. Costs a small task with its stack in PSRAM.
+
     config MUSE_UI_TOUCH_SOUNDS
         bool "Little sounds when you touch Muse"
         default n

@@ -52,6 +52,9 @@
 #include "muse_wifi.h"
 #include "muse_voice.h"
 #include "esp_random.h"
+#if CONFIG_MUSE_CLOCK
+#include "muse_clock.h"
+#endif
 #if CONFIG_MUSE_VIDEO
 #include "muse_video.h"
 #endif
@@ -184,6 +187,9 @@ static lv_obj_t *s_meter[METER_SEGS];
 static lv_obj_t *s_speaker;
 static lv_obj_t *s_speaker_icon;
 static lv_obj_t *s_aux_icon;
+#if CONFIG_MUSE_CLOCK
+static lv_obj_t *s_clock_lbl, *s_dnd_lbl;
+#endif
 #if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
 static lv_obj_t *s_talk_hint_lbl, *s_end_hint_lbl;
 #define CALL_HINT_OUT 26   /* px outwards from the rim icon's x: the 320 px avatar's sparkles reach ~125 */
@@ -610,6 +616,16 @@ static void build_button_icons(lv_obj_t *face)
     lv_obj_align(s_aux_icon, a->align, a->x, a->y);
 }
 
+/* Do not disturb or sleep hours: none of the board's own little sounds. */
+__attribute__((unused)) static bool quiet(void)
+{
+#if CONFIG_MUSE_CLOCK
+    return muse_clock_quiet();
+#else
+    return false;
+#endif
+}
+
 static void on_canvas_clicked(lv_event_t *e)
 {
     (void)e;
@@ -629,7 +645,7 @@ static void on_canvas_clicked(lv_event_t *e)
     muse_state_make_happy();
 #if CONFIG_MUSE_UI_TOUCH_SOUNDS
     /* Most touches make a little sound, only while Muse is idle and the speaker's on. */
-    if (sfx >= 0 && muse_settings_speaker_on() && muse_state_mode(NULL) == MUSE_MODE_IDLE) {
+    if (sfx >= 0 && muse_settings_speaker_on() && muse_state_mode(NULL) == MUSE_MODE_IDLE && !quiet()) {
         muse_voice_request_sound(sfx);
     }
 #else
@@ -1369,6 +1385,10 @@ static void build_screen(void)
     lv_obj_set_flex_align(status, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(status, s_small ? 4 : 8, 0);
     lv_obj_align(status, LV_ALIGN_TOP_MID, 0, muse_board->rim_controls ? 40 : s_small ? 1 : 20 + s_dy);
+#if CONFIG_MUSE_CLOCK
+    s_clock_lbl = make_label(status, &lv_font_montserrat_14, COLOR_CAPTION);   /* 9:47, once the time's set */
+    s_dnd_lbl = make_label(status, &lv_font_montserrat_14, COLOR_DIM);        /* DND while quiet */
+#endif
     s_wifi_icon = make_label(status, &lv_font_montserrat_14, COLOR_DIM);
     s_ble_icon = make_label(status, &lv_font_montserrat_14, COLOR_DIM);
     s_power_lbl = make_label(status, &lv_font_unscii_8, COLOR_DIM);
@@ -1770,6 +1790,11 @@ static bool update_sleep(void)
     }
     if (!s_dark) {
         int target = muse_settings_brightness();
+#if CONFIG_MUSE_CLOCK
+        if (muse_clock_sleep_hours() && target > 30) {
+            target = 30;   /* sleep hours: a dim night light */
+        }
+#endif
         if (s_preview_brightness >= 0) {
             if (s_preview_brightness == target) {
                 s_preview_brightness = -1;
@@ -1947,6 +1972,21 @@ static void update_power(float now)
     }
     s_next_power_update = now + 1.0f;
 
+#if CONFIG_MUSE_CLOCK
+    muse_clock_tick();
+    struct tm tm;
+    char clock[8] = "";
+    if (muse_clock_now(&tm)) {
+        snprintf(clock, sizeof(clock), "%d:%02d", tm.tm_hour % 12 ? tm.tm_hour % 12 : 12, tm.tm_min);
+    }
+    if (strcmp(clock, lv_label_get_text(s_clock_lbl))) {
+        lv_label_set_text(s_clock_lbl, clock);
+    }
+    const char *dnd = muse_clock_quiet() ? "DND" : "";
+    if (strcmp(dnd, lv_label_get_text(s_dnd_lbl))) {
+        lv_label_set_text(s_dnd_lbl, dnd);
+    }
+#endif
     muse_power_t p = muse_state_power();
     char buf[32];
     if (p.battery_pct < 0) {
@@ -2307,7 +2347,7 @@ static void frame_tick(lv_timer_t *timer)
     /* The voice task can switch sources after this frame read its mode. */
     if (muse_voice_in_call() &&
         ((mode == MUSE_MODE_LISTENING) != (muse_voice_call_view() == MUSE_VOICE_VIEW_LISTENING))) level = 0;
-    s_level += (level - s_level) * (level > s_level ? 0.6f : 0.2f);
+    s_level += (level - s_level) * (level > s_level ? 0.75f : 0.4f);   /* quick both ways: the mouth keeps up with the words */
 
     muse_pose_t pose = {
         .mode = mode,
@@ -2326,7 +2366,18 @@ static void frame_tick(lv_timer_t *timer)
             lv_obj_invalidate(s_canvas);
         }
         if (s_photo) {
+#if CONFIG_MUSE_CLOCK
+            muse_photo_set_sleeping(muse_clock_sleep_hours());
+#endif
             if (muse_photo_render(&pose)) lv_obj_invalidate(s_canvas);   /* only when it moved */
+            int sfx = muse_photo_take_sound();   /* shaken, say */
+#if CONFIG_MUSE_UI_TOUCH_SOUNDS
+            if (sfx >= 0 && muse_settings_speaker_on() && mode == MUSE_MODE_IDLE && !quiet()) {
+                muse_voice_request_sound(sfx);
+            }
+#else
+            (void)sfx;
+#endif
         } else
 #endif
         {
