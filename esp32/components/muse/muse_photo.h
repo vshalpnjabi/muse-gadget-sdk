@@ -22,7 +22,7 @@
 #include "muse_pixel.h"
 
 /*
- * The Muse app's picture of your Muse as the face: a round portrait the board
+ * The Muse app's picture of your Muse as the face: a portrait on black the board
  * animates itself (breathing, leaning in to listen, a pulse with Muse's voice,
  * a sway while it thinks). Built in when components/muse/avatar/muse_photo_img.c
  * exists (tools/muse/photo_avatar.py makes it); MUSE_HAS_PHOTO_AVATAR is then 1.

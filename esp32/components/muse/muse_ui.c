@@ -40,6 +40,7 @@
 #include "muse_link.h"
 #include "muse_mem.h"
 #include "muse_menu.h"
+#include "muse_audio.h"
 #include "muse_pixel.h"
 #if MUSE_HAS_PHOTO_AVATAR
 #include "muse_photo.h"
@@ -520,9 +521,23 @@ static void color_mic(lv_obj_t *icon, uint32_t color)
     }
 }
 
+#define COLOR_MIC_MUTED 0xff5050
+
 static void set_mic_color(uint32_t color)
 {
-    color_mic(s_mic_icon, color);   /* legacy face icon only */
+    /* Muted stays red whatever the mode, so it can't be missed. */
+    color_mic(s_mic_icon, muse_audio_mic_muted() ? COLOR_MIC_MUTED : color);   /* legacy face icon only */
+}
+
+/* A tap on the face's mic (on boards that talk with a physical button) mutes
+ * and unmutes it: Muse then hears silence, in voice notes and calls alike. */
+static void on_mic_mute(lv_event_t *e)
+{
+    (void)e;
+    bool muted = !muse_audio_mic_muted();
+    muse_audio_set_mic_muted(muted);
+    set_mic_color(COLOR_DIM);
+    muse_state_set_hint(muted ? "MIC MUTED" : "MIC ON");
 }
 
 static void on_touch_mic(lv_event_t *e)
@@ -559,6 +574,13 @@ static void build_button_icons(lv_obj_t *face)
             lv_obj_remove_flag(lv_obj_get_child(s_mic_icon, i), LV_OBJ_FLAG_CLICKABLE);
         }
         lv_obj_add_event_cb(s_mic_icon, on_touch_mic, LV_EVENT_ALL, NULL);
+    } else if (muse_board->touch && (muse_board->audio_init || muse_board->mic_init)) {
+        lv_obj_add_flag(s_mic_icon, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_ext_click_area(s_mic_icon, 16);   /* a fingertip is bigger than the icon */
+        for (uint32_t i = 0; i < lv_obj_get_child_count(s_mic_icon); i++) {
+            lv_obj_remove_flag(lv_obj_get_child(s_mic_icon, i), LV_OBJ_FLAG_CLICKABLE);
+        }
+        lv_obj_add_event_cb(s_mic_icon, on_mic_mute, LV_EVENT_CLICKED, NULL);
     }
 
     /* Without touch the aux button opens the menu rather than sleeping. A board
@@ -735,7 +757,7 @@ static void speaker_grow(bool grow)
     lv_anim_start(&a);
 }
 
-/* Touch and hold to toggle, like the lock screen's flashlight; a tap only says so. */
+/* Touch and hold to toggle, like the lock screen's flashlight; a tap steps the volume. */
 static void on_speaker_event(lv_event_t *e)
 {
     bool on = muse_settings_speaker_on();
@@ -751,11 +773,23 @@ static void on_speaker_event(lv_event_t *e)
             muse_state_set_hint(on ? "SPEAKER OFF" : "SPEAKER ON");
         }
         break;
-    case LV_EVENT_SHORT_CLICKED:
+    case LV_EVENT_SHORT_CLICKED: {
+        /* A tap steps the volume (25, 50, 75, 100, then 25 again); off, it turns the speaker back on. */
+        int vol = muse_settings_volume();
+        if (on) {
+            vol = vol >= 100 ? 25 : (vol / 25 + 1) * 25;
+            muse_settings_set_volume(vol);
+        } else {
+            muse_settings_set_speaker_on(true);
+            show_speaker(true);
+        }
         if (idle) {
-            muse_state_set_hint(on ? "HOLD TO MUTE" : "HOLD TO UNMUTE");
+            static char hint[32];
+            snprintf(hint, sizeof(hint), "VOLUME %d%%", vol);
+            muse_state_set_hint(hint);
         }
         break;
+    }
     case LV_EVENT_RELEASED:
     case LV_EVENT_PRESS_LOST:
         speaker_grow(false);

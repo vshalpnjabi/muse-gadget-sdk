@@ -46,8 +46,13 @@ void muse_audio_selftest(void);
 /* Plays tones while recording, across mic gains; logs levels. For tuning. */
 void muse_audio_loopback_test(int volume);
 
-/* Blocking read of `frames` mono samples (mic pair mixed down). */
+/* Blocking read of `frames` mono samples (mic pair mixed down); silence while muted. */
 esp_err_t muse_audio_read(int16_t *mono, size_t frames);
+
+/* The face's mic button: muted, every read gives silence (voice notes and calls
+ * alike). Any task. In RAM only, so a restart unmutes. */
+void muse_audio_set_mic_muted(bool muted);
+bool muse_audio_mic_muted(void);
 
 /* Blocking write of `frames` mono samples to the speaker. */
 esp_err_t muse_audio_write(const int16_t *mono, size_t frames);

@@ -19,8 +19,9 @@
 writes components/muse/avatar/muse_photo_img.c (gitignored, like your drawn
 avatar), which the next build picks up: Settings > Appearance then offers the
 picture beside the pixel art, and shows it by default. The picture is made
-square (centre crop), resized to SIDE (the face's size on a 466 px screen is
-320) and stored as RGB565, SIDE * SIDE * 2 bytes of flash. Needs Pillow.
+square (centre crop), cut to head and shoulders, resized to SIDE (the face's
+size on a 466 px screen is 320), its plain light backdrop turned black, and
+stored as RGB565, SIDE * SIDE * 2 bytes of flash. Needs Pillow.
 Remove the file to build without the picture.
 """
 import argparse
@@ -31,6 +32,48 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 OUT = os.path.join(ROOT, "components", "muse", "avatar", "muse_photo_img.c")
 
 
+def black_background(im, tol):
+    """Turns the picture's light, plain backdrop black, as an OLED shows nothing.
+
+    The app's portraits are outlined cartoons on near-white: everything near
+    white and grey that connects to the picture's edge is backdrop. Pale parts
+    of the character inside its outline (a cream T-shirt) aren't reached. The
+    outline's anti-aliased rim was blended with white; it's darkened by how
+    light it is, so no white halo is left around the character on black.
+    """
+    w, h = im.size
+    px = im.load()
+
+    def light(c):
+        r, g, b = c
+        return min(r, g, b) >= 255 - tol and max(r, g, b) - min(r, g, b) <= 24
+
+    seen = bytearray(w * h)
+    stack = [(x, y) for x in range(w) for y in (0, h - 1)] + [(x, y) for y in range(h) for x in (0, w - 1)]
+    while stack:
+        x, y = stack.pop()
+        i = y * w + x
+        if seen[i] or not light(px[x, y]):
+            continue
+        seen[i] = 1
+        if x > 0: stack.append((x - 1, y))
+        if x < w - 1: stack.append((x + 1, y))
+        if y > 0: stack.append((x, y - 1))
+        if y < h - 1: stack.append((x, y + 1))
+    for y in range(h):
+        for x in range(w):
+            i = y * w + x
+            if seen[i]:
+                px[x, y] = (0, 0, 0)
+                continue
+            near = any(0 <= x + dx < w and 0 <= y + dy < h and seen[(y + dy) * w + x + dx]
+                       for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)))
+            if near:
+                r, g, b = px[x, y]
+                keep = max(0.0, min(1.0, (255 - min(r, g, b)) / 155.0))   # white: 0, dark outline: 1
+                px[x, y] = (int(r * keep), int(g * keep), int(b * keep))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("picture")
@@ -39,6 +82,11 @@ def main():
                     help="share of the picture's width the round face shows (default 0.72: head and shoulders)")
     ap.add_argument("--center-y", type=float, default=0.41,
                     help="how far down the picture that view is centred (default 0.41: the app puts the face high)")
+    ap.add_argument("--keep-background", action="store_true",
+                    help="keep the picture's own background (by default its light, plain backdrop turns black)")
+    ap.add_argument("--bg-tolerance", type=int, default=28,
+                    help="how far from white the backdrop may be, 0-255 (default 28)")
+    ap.add_argument("--preview", help="also save the result as an image here (PNG), to check it")
     args = ap.parse_args()
     try:
         from PIL import Image
@@ -65,6 +113,10 @@ def main():
     left = (s - v) / 2
     im = im.resize((args.side, args.side), Image.LANCZOS, box=(left, top, left + v, top + v))
 
+    if not args.keep_background:
+        black_background(im, args.bg_tolerance)
+    if args.preview:
+        im.save(args.preview)   # what the board gets, before the round mask
     raw = im.tobytes()   # RGB, row by row
     px = [(raw[i] >> 3) << 11 | (raw[i + 1] >> 2) << 5 | (raw[i + 2] >> 3) for i in range(0, len(raw), 3)]
     lines = []

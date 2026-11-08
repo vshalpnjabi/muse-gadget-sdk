@@ -53,10 +53,12 @@ def _function(source: str, name: str) -> str:
 HARNESS = r'''
 #include <assert.h>
 #include <math.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #define ESP_OK 0
 #define ESP_FAIL -1
 #define ESP_CODEC_DEV_OK 0
@@ -87,6 +89,7 @@ static struct {
 } board = { .mic_read = board_mic_read }, *muse_board = &board;
 static esp_codec_dev_handle_t s_mic;
 static float s_mic_scale = 1.0f;
+static atomic_bool s_mic_muted;   /* muse_audio_read gives silence while set */
 static int16_t s_in_stereo[MUSE_AUDIO_CHUNK * CHANNELS];
 static int16_t s_in_mono[MUSE_AUDIO_CHUNK];
 static float s_hpf_a, s_hpf_x1, s_hpf_y1;

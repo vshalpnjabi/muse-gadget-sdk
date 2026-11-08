@@ -15,8 +15,8 @@
  */
 
 /*
- * The Muse app's picture as the face (muse_photo.h). The picture is shown in a
- * circle, a little zoomed on the face, and moved as a whole: there's no
+ * The Muse app's picture as the face (muse_photo.h). The picture, its backdrop
+ * already black, fills the avatar's square and is moved as a whole: there's no
  * per-feature animation, so the motion is the body language (breathing,
  * leaning in, a pulse with the voice, a sway) and the UI's ring carries the
  * mode's colour. The motion is quantised (half-pixel steps), so a frame is
@@ -29,12 +29,11 @@
 #include <string.h>
 
 #define TAU 6.2831853f
-/* tools/muse/photo_avatar.py crops the picture to what the circle shows, so
- * the circle holds all of it, centred. */
+/* tools/muse/photo_avatar.py crops the picture to head and shoulders and
+ * turns its backdrop black, so the canvas holds all of it, centred. */
 #define VIEW_SHARE 1.0f
 #define FOCUS_X 0.50f
 #define FOCUS_Y 0.50f
-#define EDGE 2   /* px between the circle and the canvas edge, for the UI's ring */
 
 static int s_size = 320;
 /* What's shown: zoom in 1/1024 steps, offsets in half pixels, brightness in 1/16. */
@@ -107,9 +106,8 @@ void muse_photo_scale(uint16_t *dst, int stride_px, int x0, int x1, int y0, int 
 {
     const int side = muse_photo_side;
     const float half = (s_size - 1) * 0.5f;
-    const float rc = s_size * 0.5f - EDGE;
-    /* Picture pixels per screen pixel, in 16.16. */
-    const float step = VIEW_SHARE * side / (2.0f * rc) / (s_zoom / 1024.0f);
+    /* Picture pixels per screen pixel, in 16.16: the picture fills the canvas. */
+    const float step = VIEW_SHARE * side / (float)s_size / (s_zoom / 1024.0f);
     const int32_t step_fp = (int32_t)(step * 65536.0f);
     const float cx = half + s_dx2 * 0.5f, cy = half + s_dy2 * 0.5f;
     const int32_t fx_fp = (int32_t)(FOCUS_X * side * 65536.0f), fy_fp = (int32_t)(FOCUS_Y * side * 65536.0f);
@@ -117,30 +115,15 @@ void muse_photo_scale(uint16_t *dst, int stride_px, int x0, int x1, int y0, int 
 
     for (int y = y0; y <= y1; y++) {
         uint16_t *row = dst + (size_t)(y - y0) * stride_px;
-        float ry = y - half;   /* the circle stays put; the picture moves inside it */
-        float hw2 = rc * rc - ry * ry;
-        int lo = x1 + 1, hi = x0 - 1;
-        if (hw2 > 0) {
-            float hw = sqrtf(hw2);
-            lo = (int)ceilf(half - hw);
-            hi = (int)floorf(half + hw);
-            lo = lo < x0 ? x0 : lo;
-            hi = hi > x1 ? x1 : hi;
-        }
-        if (lo > hi) {
-            memset(row, 0, (size_t)(x1 - x0 + 1) * sizeof(uint16_t));
+        int32_t sy = fy_fp + (int32_t)((y - cy) * step_fp);
+        if (sy < 0 || sy > max_fp) {
+            memset(row, 0, (size_t)(x1 - x0 + 1) * sizeof(uint16_t));   /* moved past the picture: black */
             continue;
         }
-        if (lo > x0) memset(row, 0, (size_t)(lo - x0) * sizeof(uint16_t));
-        if (hi < x1) memset(row + (hi - x0 + 1), 0, (size_t)(x1 - hi) * sizeof(uint16_t));
-
-        int32_t sy = fy_fp + (int32_t)((y - cy) * step_fp);
-        sy = sy < 0 ? 0 : sy > max_fp ? max_fp : sy;
         const uint16_t *src = muse_photo_px + (size_t)(sy >> 16) * side;
-        int32_t sx = fx_fp + (int32_t)((lo - cx) * step_fp);
-        for (int x = lo; x <= hi; x++, sx += step_fp) {
-            int32_t c = sx < 0 ? 0 : sx > max_fp ? max_fp : sx;
-            uint16_t px = src[c >> 16];
+        int32_t sx = fx_fp + (int32_t)((x0 - cx) * step_fp);
+        for (int x = x0; x <= x1; x++, sx += step_fp) {
+            uint16_t px = sx < 0 || sx > max_fp ? 0 : src[sx >> 16];
             row[x - x0] = s_bright < 16 ? dim(px, s_bright) : px;
         }
     }

@@ -17,6 +17,7 @@
 #include "muse_audio.h"
 
 #include <math.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -51,6 +52,8 @@ static int16_t s_out_stereo[MUSE_AUDIO_CHUNK * CHANNELS];
 /* One-pole high-pass on the mixed mic signal. */
 static float s_hpf_a;
 static float s_mic_scale = 1.0f;
+/* Muted (the face's mic button): reads give silence. In RAM only: a restart unmutes. */
+static atomic_bool s_mic_muted;
 static float s_hpf_x1, s_hpf_y1;
 
 static void lock(void)
@@ -405,6 +408,17 @@ void muse_audio_loopback_test(int volume)
     muse_audio_set_volume(muse_settings_volume());
 }
 
+void muse_audio_set_mic_muted(bool muted)
+{
+    atomic_store(&s_mic_muted, muted);
+    ESP_LOGI(TAG, "mic %s", muted ? "muted" : "on");
+}
+
+bool muse_audio_mic_muted(void)
+{
+    return atomic_load(&s_mic_muted);
+}
+
 esp_err_t muse_audio_read(int16_t *mono, size_t frames)
 {
     while (frames) {
@@ -425,6 +439,9 @@ esp_err_t muse_audio_read(int16_t *mono, size_t frames)
             s_hpf_x1 = x;
             s_hpf_y1 = y;
             mono[i] = (int16_t)(y > 32767 ? 32767 : (y < -32768 ? -32768 : y));
+        }
+        if (atomic_load(&s_mic_muted)) {
+            memset(mono, 0, n * sizeof(int16_t));   /* read anyway, so the timing stays the same */
         }
         mono += n;
         frames -= n;

@@ -37,6 +37,7 @@
 #include "muse_board.h"
 #include "muse_chat.h"
 #include "muse_console.h"
+#include "muse_audio.h"
 #include "muse_link.h"
 #include "muse_mem.h"
 #include "muse_menu.h"
@@ -327,6 +328,9 @@ static void talk_button(unsigned ev)
         } else if (voice) {
             post(MUSE_PTT_DOWN, false);
             talk_down = true;
+            if (muse_audio_mic_muted()) {
+                muse_state_set_hint("MIC MUTED - TAP THE MIC");   /* Muse will hear silence */
+            }
         } else {
             muse_state_poke();
             swallow = true;
