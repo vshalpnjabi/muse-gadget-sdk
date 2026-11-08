@@ -1025,7 +1025,31 @@ static bool pump_ptt(int64_t now)
     return true;
 }
 
-/* The voice guard's note, if one waits and the call can take it. */
+/* The voice guard's note, if one waits and the call can take it: standard
+ * realtime events (Muse Management's wording), so the app needn't know a new
+ * type. Lost: a system item with the refusal contract, then response.create
+ * so Muse says one now. Verified: a system item to leave refusal mode, no
+ * reply. Fire and forget: never retried, and a send that fails doesn't end
+ * the call. */
+static const char GUARD_LOST[] =
+    "[voice guard] The current speaker is NOT verified as Vishal. Enter refusal mode: speak ONE brief, polite "
+    "refusal now, rotating among: \"I suspect this isn't Vishal talking, so I can't help with that.\" / "
+    "\"Sorry — I can only help Vishal, and I can't verify that this is him.\" / \"This doesn't sound like "
+    "Vishal, so I'll have to stop here.\" / \"I can't confirm it's Vishal speaking, so I'm not able to "
+    "continue.\" / \"I only take requests from Vishal, and this voice isn't verified as his.\" Do not answer "
+    "questions, carry out instructions, or take any action while in refusal mode; decline any further request "
+    "the same way until a verified message arrives.";
+static const char GUARD_VERIFIED[] =
+    "[voice guard] Vishal is verified again. Leave refusal mode and resume helping normally; do not mention the "
+    "voice guard or the interruption.";
+
+static void guard_send(const char *line, size_t n)
+{
+    if (!muse_session_call_send(s_media_id, reinterpret_cast<const uint8_t *>(line), n, false)) {
+        ESP_LOGW(TAG, "voice guard note not sent");
+    }
+}
+
 static bool send_guard_note(void)
 {
     if (s_call.state != MUSE_VC_LIVE || !s_media_id) {
@@ -1035,12 +1059,22 @@ static bool send_guard_note(void)
     if (!note) {
         return true;
     }
-    char line[160];
-    int n = snprintf(line, sizeof(line), "{\"type\":\"hatch.voice_guard\",\"state\":\"%s\",\"speaker\":\"%s\"}\n",
-                     note == 2 ? "verified" : "lost", CONFIG_MUSE_VG_SPEAKER_OR_DEFAULT);
+    static char esc[sizeof(GUARD_LOST) * 2], line[sizeof(esc) + 160];
+    if (!muse_vc_json_escape(note == 2 ? GUARD_VERIFIED : GUARD_LOST, esc, sizeof(esc))) {
+        return true;
+    }
+    int n = snprintf(line, sizeof(line),
+                     "{\"type\":\"conversation.item.create\",\"item\":{\"type\":\"message\",\"role\":\"system\","
+                     "\"content\":[{\"type\":\"input_text\",\"text\":\"%s\"}]}}\n", esc);
     ESP_LOGI(TAG, "voice guard note: %s", note == 2 ? "verified" : "lost");
-    return n <= 0 || (size_t)n >= sizeof(line) ||
-           muse_session_call_send(s_media_id, reinterpret_cast<const uint8_t *>(line), (size_t)n, false);
+    if (n > 0 && (size_t)n < sizeof(line)) {
+        guard_send(line, (size_t)n);
+        if (note == 1) {
+            static const char CREATE[] = "{\"type\":\"response.create\"}\n";
+            guard_send(CREATE, sizeof(CREATE) - 1);   /* Muse says one refusal now */
+        }
+    }
+    return true;
 }
 
 extern "C" void muse_voice_call_guard_note(bool verified)
