@@ -60,18 +60,146 @@ def black_background(im, tol):
         if x < w - 1: stack.append((x + 1, y))
         if y > 0: stack.append((x, y - 1))
         if y < h - 1: stack.append((x, y + 1))
+    # Light pockets the edge fill can't reach (gaps between curls of hair) are
+    # backdrop too, unless they touch skin: eye whites and the glasses' glints
+    # sit against skin, hair gaps against hair and outline.
+    def pale(c):
+        r, g, b = c
+        return min(r, g, b) >= 200 and max(r, g, b) - min(r, g, b) <= 30
+
+    def skin(c):
+        r, g, b = c
+        return r >= 190 and g >= 140 and b >= 100 and r - b >= 35
+
+    done = bytearray(seen)
+    for y0 in range(h):
+        for x0 in range(w):
+            if done[y0 * w + x0] or not pale(px[x0, y0]):
+                continue
+            comp, touches_skin, stack = [], False, [(x0, y0)]
+            done[y0 * w + x0] = 1
+            while stack:
+                x, y = stack.pop()
+                comp.append((x, y))
+                for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                    if not (0 <= nx < w and 0 <= ny < h):
+                        continue
+                    j = ny * w + nx
+                    if done[j]:
+                        continue
+                    if pale(px[nx, ny]):
+                        done[j] = 1
+                        stack.append((nx, ny))
+                    elif skin(px[nx, ny]):
+                        touches_skin = True
+            if not touches_skin and len(comp) < w * h // 50:
+                for x, y in comp:
+                    seen[y * w + x] = 1
+
+    # The outline's anti-aliased rim was blended with white: within 2 px of the
+    # backdrop, greyish light pixels are darkened by how light they are.
+    dist = bytearray([255]) * (w * h)
+    for i in range(w * h):
+        if seen[i]:
+            dist[i] = 0
+    for _ in range(2):
+        nxt = bytearray(dist)
+        for y in range(h):
+            for x in range(w):
+                i = y * w + x
+                if dist[i] == 255 and any(0 <= x + dx < w and 0 <= y + dy < h and dist[(y + dy) * w + x + dx] != 255
+                                          for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1))):
+                    nxt[i] = min(dist[(y + dy) * w + x + dx] for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1))
+                                 if 0 <= x + dx < w and 0 <= y + dy < h) + 1
+        dist = nxt
     for y in range(h):
         for x in range(w):
             i = y * w + x
-            if seen[i]:
+            if dist[i] == 0:
                 px[x, y] = (0, 0, 0)
-                continue
-            near = any(0 <= x + dx < w and 0 <= y + dy < h and seen[(y + dy) * w + x + dx]
-                       for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)))
-            if near:
+            elif dist[i] <= 2:
                 r, g, b = px[x, y]
-                keep = max(0.0, min(1.0, (255 - min(r, g, b)) / 155.0))   # white: 0, dark outline: 1
-                px[x, y] = (int(r * keep), int(g * keep), int(b * keep))
+                if max(r, g, b) - min(r, g, b) <= 40:   # grey or white glow, not a coloured part
+                    keep = max(0.0, min(1.0, (255 - min(r, g, b)) / 155.0))   # white: 0, dark outline: 1
+                    px[x, y] = (int(r * keep), int(g * keep), int(b * keep))
+
+
+def _avg(im, box):
+    px = [im.getpixel((x, y)) for x in range(box[0], box[2]) for y in range(box[1], box[3])]
+    return tuple(sum(c[i] for c in px) // len(px) for i in range(3))
+
+
+def _lid(im, cx, cy, rx, ry):
+    """An eyelid's colour: the median of the skin in a ring just round the eye
+    (between it and the glasses), a shade darker, as a lid is."""
+    ring = []
+    for y in range(cy - ry - 5, cy + ry + 6):
+        for x in range(cx - rx - 5, cx + rx + 6):
+            e = ((x - cx) / (rx + 1.5)) ** 2 + ((y - cy) / (ry + 1.5)) ** 2
+            if 1.0 < e <= 1.9:
+                r, g, b = im.getpixel((x, y))
+                if r >= 190 and g >= 140 and b >= 100 and r - b >= 35:   # skin, not lash or frame
+                    ring.append((r, g, b))
+    if not ring:
+        return _avg(im, (cx - 4, cy + ry + 2, cx + 4, cy + ry + 5))
+    med = [sorted(c[i] for c in ring)[len(ring) // 2] for i in range(3)]
+    return tuple(int(v * 0.95) for v in med)
+
+
+def _darkest(im, box):
+    return min((im.getpixel((x, y)) for x in range(box[0], box[2]) for y in range(box[1], box[3])), key=sum)
+
+
+def face_patches(im, eyes, eye_size, mouth):
+    """The face's moving parts, drawn from the picture's own colours, as
+    (x, y, w, h, image) patches the board swaps in: eyes closed, eyes happy
+    (closed in an upward curve), and the mouth open small, medium and wide.
+    Order matters: muse_photo.c names them by index."""
+    from PIL import ImageDraw
+    out = []
+    rx, ry = eye_size
+    if eyes:
+        lx, ly, rx_, ry_ = eyes
+        x0, y0 = min(lx, rx_) - rx - 4, min(ly, ry_) - ry - 4
+        x1, y1 = max(lx, rx_) + rx + 5, max(ly, ry_) + ry + 5
+        for curve in (1, -1):   # 1: closed (bowed down), -1: happy (bowed up)
+            p = im.crop((x0, y0, x1, y1)).copy()
+            d = ImageDraw.Draw(p)
+            for cx, cy in ((lx, ly), (rx_, ry_)):
+                skin = _lid(im, cx, cy, rx, ry)
+                lash = _darkest(im, (cx - rx // 2, cy - ry, cx + rx // 2, cy - ry // 2))   # the upper lid's line
+                ex, ey = cx - x0, cy - y0
+                d.ellipse((ex - rx, ey - ry, ex + rx, ey + ry), fill=skin)
+                pts = []
+                for k in range(-rx + 1, rx):
+                    t = k / rx
+                    pts.append((ex + k, ey + 1 + curve * 3.5 * (1 - t * t) - (2 if curve < 0 else 0)))
+                d.line(pts, fill=lash, width=2)
+            out.append((x0, y0, p))
+    if mouth:
+        mx, my = mouth
+        x0, y0, x1, y1 = mx - 18, my - 8, mx + 19, my + 12
+        lip = _darkest(im, (mx - 6, my - 2, mx + 6, my + 3))   # the mouth's own line
+        dark = (max(lip[0] - 10, 40), max(lip[1] - 25, 12), max(lip[2] - 25, 12))
+        for w2, h2 in ((7, 2), (9, 4), (11, 6)):
+            p = im.crop((x0, y0, x1, y1)).copy()
+            d = ImageDraw.Draw(p)
+            ex, ey = mx - x0, my - y0 + h2 // 2
+            d.ellipse((ex - w2, ey - h2, ex + w2, ey + h2), fill=(110, 40, 40), outline=dark)
+            if h2 >= 4:   # a tongue in the lower half
+                d.ellipse((ex - w2 + 3, ey, ex + w2 - 3, ey + h2 - 1), fill=(205, 105, 100))
+            out.append((x0, y0, p))
+    return [(x, y, p.size[0], p.size[1], p) for x, y, p in out]
+
+
+def _rgb565(im):
+    raw = im.tobytes()   # RGB, row by row
+    return [(raw[i] >> 3) << 11 | (raw[i + 1] >> 2) << 5 | (raw[i + 2] >> 3) for i in range(0, len(raw), 3)]
+
+
+def _c_array(name, px):
+    lines = ["    " + ", ".join(f"0x{v:04x}" for v in px[i:i + 16]) + "," for i in range(0, len(px), 16)]
+    return f"static const uint16_t {name}[] = {{\n" + "\n".join(lines) + "\n};\n"
 
 
 def main():
@@ -87,6 +215,10 @@ def main():
     ap.add_argument("--bg-tolerance", type=int, default=28,
                     help="how far from white the backdrop may be, 0-255 (default 28)")
     ap.add_argument("--preview", help="also save the result as an image here (PNG), to check it")
+    ap.add_argument("--eyes", help="the eyes' centres in the result, LX,LY,RX,RY (see --preview): "
+                                   "the board then blinks them, and squints them happily when you pet it")
+    ap.add_argument("--eye-size", default="14,8", help="half width and half height of an eye's opening (default 14,8)")
+    ap.add_argument("--mouth", help="the mouth's centre in the result, X,Y: the board then opens it as Muse talks")
     args = ap.parse_args()
     try:
         from PIL import Image
@@ -115,13 +247,28 @@ def main():
 
     if not args.keep_background:
         black_background(im, args.bg_tolerance)
+    def nums(text, n, what):
+        try:
+            v = [int(round(float(t))) for t in text.split(",")]
+        except ValueError:
+            v = []
+        if len(v) != n:
+            sys.exit(f"{what} takes {n} numbers, comma-separated")
+        return v
+
+    eyes = nums(args.eyes, 4, "--eyes") if args.eyes else None
+    mouth = nums(args.mouth, 2, "--mouth") if args.mouth else None
+    patches = face_patches(im, eyes, nums(args.eye_size, 2, "--eye-size"), mouth)
     if args.preview:
-        im.save(args.preview)   # what the board gets, before the round mask
-    raw = im.tobytes()   # RGB, row by row
-    px = [(raw[i] >> 3) << 11 | (raw[i + 1] >> 2) << 5 | (raw[i + 2] >> 3) for i in range(0, len(raw), 3)]
-    lines = []
-    for i in range(0, len(px), 16):
-        lines.append("    " + ", ".join(f"0x{v:04x}" for v in px[i:i + 16]) + ",")
+        # The picture, then each patch in place: what the board can show.
+        sheet = Image.new("RGB", (im.size[0] * (1 + len(patches)), im.size[1]))
+        sheet.paste(im, (0, 0))
+        for k, (x, y, w, h, p) in enumerate(patches):
+            frame = im.copy()
+            frame.paste(p, (x, y))
+            sheet.paste(frame, (im.size[0] * (k + 1), 0))
+        sheet.save(args.preview)
+    px = _rgb565(im)
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as f:
         f.write("/* Made by tools/muse/photo_avatar.py from %s. Yours: gitignored. */\n"
@@ -129,8 +276,21 @@ def main():
         f.write('#include "muse_photo.h"\n\n')
         f.write(f"const int muse_photo_side = {args.side};\n")
         f.write(f"const uint16_t muse_photo_px[{args.side} * {args.side}] = {{\n")
-        f.write("\n".join(lines))
-        f.write("\n};\n")
+        f.write("\n".join("    " + ", ".join(f"0x{v:04x}" for v in px[i:i + 16]) + ","
+                          for i in range(0, len(px), 16)))
+        f.write("\n};\n\n")
+        for k, (x, y, w, h, p) in enumerate(patches):
+            f.write(_c_array(f"patch{k}", _rgb565(p)))
+        f.write("\n/* eyes closed, eyes happy, mouth open small/medium/wide (muse_photo.h) */\n")
+        kinds = (["MUSE_PHOTO_EYES_CLOSED", "MUSE_PHOTO_EYES_HAPPY"] if eyes else []) + \
+                (["MUSE_PHOTO_MOUTH_1", "MUSE_PHOTO_MOUTH_2", "MUSE_PHOTO_MOUTH_3"] if mouth else [])
+        f.write("const muse_photo_patch_t muse_photo_patches[] = {\n")
+        for k, ((x, y, w, h, p), kind) in enumerate(zip(patches, kinds)):
+            f.write(f"    {{ {kind}, {x}, {y}, {w}, {h}, patch{k} }},\n")
+        if not patches:
+            f.write("    { MUSE_PHOTO_PATCH_NONE, 0, 0, 0, 0, 0 },\n")
+        f.write("};\n")
+        f.write(f"const int muse_photo_patch_count = {len(patches)};\n")
     print(f"Wrote {os.path.relpath(OUT, ROOT)}: {args.side} x {args.side}, {len(px) * 2} bytes")
 
 

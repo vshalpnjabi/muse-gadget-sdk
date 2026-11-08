@@ -16,12 +16,13 @@
 
 /*
  * The Muse app's picture as the face (muse_photo.h). The picture, its backdrop
- * already black, fills the avatar's square and is moved as a whole: there's no
- * per-feature animation, so the motion is the body language (breathing,
- * leaning in, a pulse with the voice, a sway) and the UI's ring carries the
- * mode's colour. The motion is quantised (half-pixel steps), so a frame is
- * redrawn only when what it shows moves, and sampling is nearest-neighbour,
- * one table walk per row, cheap enough for every strip LVGL asks for.
+ * already black, fills the avatar's square. The face lives through patches
+ * the host drew from the picture itself: it blinks every few seconds, squints
+ * happily with a little open smile when petted, and opens its mouth with
+ * Muse's voice. Around that, gentle body language: breathing when idle,
+ * leaning in to listen, a slow sway while thinking, a small nod while talking.
+ * Motion is quantised (half-pixel steps), so a frame is redrawn only when
+ * what it shows changes; sampling is nearest-neighbour, a table walk per row.
  */
 #include "muse_photo.h"
 
@@ -49,6 +50,29 @@ static float clampf(float v, float lo, float hi)
     return v < lo ? lo : v > hi ? hi : v;
 }
 
+static const muse_photo_patch_t *patch(muse_photo_part_t part)
+{
+    for (int i = 0; i < muse_photo_patch_count; i++) {
+        if (muse_photo_patches[i].part == part) return &muse_photo_patches[i];
+    }
+    return NULL;
+}
+
+/* The patches showing this frame: eyes, mouth (NULL: the picture's own). */
+static const muse_photo_patch_t *s_eyes, *s_mouth;
+
+/* Blinks come every 2.5 to 5.5 s, now and then a double one. */
+static float s_blink_at = 2.0f, s_blink_end;
+
+static float next_rand(void)
+{
+    static uint32_t x = 0x9e3779b9u;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    return (x & 0xffff) / 65535.0f;
+}
+
 bool muse_photo_render(const muse_pose_t *p)
 {
     float t = p->t, mt = p->mode_t, lvl = clampf(p->level, 0, 1);
@@ -56,43 +80,67 @@ bool muse_photo_render(const muse_pose_t *p)
     float breath = sinf(TAU * t / 4.5f);
     switch (p->mode) {
     case MUSE_MODE_LISTENING: {
-        float lean = clampf(mt / 0.35f, 0, 1);            /* leans in, then follows your voice */
-        zoom = 1.0f + 0.035f * lean + 0.02f * lvl;
-        dy = 1.5f * breath;
+        float lean = clampf(mt / 0.4f, 0, 1);              /* leans in a touch */
+        zoom = 1.0f + 0.02f * lean;
+        dy = 0.8f * breath;
         break;
     }
     case MUSE_MODE_THINKING: {
-        float rate = p->working > 0.5f ? 1.6f : 3.0f;    /* working sways quicker */
-        dx = 4.0f * sinf(TAU * t / rate);
-        zoom = 1.0f + 0.008f * breath;
+        float rate = p->working > 0.5f ? 2.2f : 3.5f;      /* working sways quicker */
+        dx = 2.0f * sinf(TAU * t / rate);
+        dy = 0.6f * breath;
         break;
     }
     case MUSE_MODE_SPEAKING:
-        zoom = 1.01f + 0.04f * lvl;                       /* a pulse with Muse's voice */
-        dy = -3.0f * lvl + 1.0f * breath;
+        dy = -1.5f * lvl + 0.6f * breath;                  /* a small nod with the words */
         break;
     case MUSE_MODE_ERROR:
-        dx = 5.0f * sinf(TAU * 7.0f * mt) * expf(-3.0f * mt);   /* a short shake */
+        dx = 4.0f * sinf(TAU * 7.0f * mt) * expf(-3.0f * mt);   /* a short shake */
         bright = 0.8f;
         break;
     case MUSE_MODE_OFF:
         bright = clampf(1.0f - mt, 0.25f, 1.0f);
         break;
-    default:                                              /* boot, idle: breathing */
-        zoom = 1.0f + 0.012f * breath;
-        dy = 2.0f * sinf(TAU * t / 4.5f + 1.0f);
+    default:                                               /* boot, idle: breathing */
+        zoom = 1.0f + 0.006f * breath;
+        dy = 1.0f * sinf(TAU * t / 4.5f + 1.0f);
         break;
     }
+    bool happy = p->happy > 0.25f;
     if (p->happy > 0.01f) {
-        dy -= 10.0f * p->happy * fabsf(sinf(TAU * 2.5f * t));   /* a bounce when petted */
+        dy -= 6.0f * p->happy * fabsf(sinf(TAU * 2.0f * t));   /* a bounce when petted */
     }
+
+    /* Eyes: happy beats a blink; asleep, they close. */
+    if (t >= s_blink_at) {
+        s_blink_end = t + 0.13f;
+        s_blink_at = t + (next_rand() < 0.15f ? 0.35f : 2.5f + 3.0f * next_rand());
+    }
+    const muse_photo_patch_t *eyes = NULL;
+    if (happy) {
+        eyes = patch(MUSE_PHOTO_EYES_HAPPY);
+    } else if (t < s_blink_end || (p->mode == MUSE_MODE_OFF && mt > 0.3f)) {
+        eyes = patch(MUSE_PHOTO_EYES_CLOSED);
+    }
+    /* Mouth: open with the voice, a small smile when petted. */
+    const muse_photo_patch_t *mouth = NULL;
+    if (p->mode == MUSE_MODE_SPEAKING) {
+        mouth = lvl > 0.55f ? patch(MUSE_PHOTO_MOUTH_3) : lvl > 0.25f ? patch(MUSE_PHOTO_MOUTH_2)
+              : lvl > 0.06f ? patch(MUSE_PHOTO_MOUTH_1) : NULL;
+    } else if (happy) {
+        mouth = patch(MUSE_PHOTO_MOUTH_1);
+    }
+
     int z = (int)lroundf(zoom * 1024), x2 = (int)lroundf(dx * 2), y2 = (int)lroundf(dy * 2);
     int b = (int)lroundf(bright * 16);
-    bool changed = z != s_zoom || x2 != s_dx2 || y2 != s_dy2 || b != s_bright;
+    bool changed = z != s_zoom || x2 != s_dx2 || y2 != s_dy2 || b != s_bright || eyes != s_eyes ||
+                   mouth != s_mouth;
     s_zoom = z;
     s_dx2 = x2;
     s_dy2 = y2;
     s_bright = b;
+    s_eyes = eyes;
+    s_mouth = mouth;
     return changed;
 }
 
@@ -120,10 +168,27 @@ void muse_photo_scale(uint16_t *dst, int stride_px, int x0, int x1, int y0, int 
             memset(row, 0, (size_t)(x1 - x0 + 1) * sizeof(uint16_t));   /* moved past the picture: black */
             continue;
         }
-        const uint16_t *src = muse_photo_px + (size_t)(sy >> 16) * side;
+        int iy = sy >> 16;
+        const uint16_t *src = muse_photo_px + (size_t)iy * side;
+        /* The face's patches crossing this row: their pixels stand in for the picture's. */
+        const muse_photo_patch_t *on[2];
+        int n_on = 0;
+        if (s_eyes && iy >= s_eyes->y && iy < s_eyes->y + s_eyes->h) on[n_on++] = s_eyes;
+        if (s_mouth && iy >= s_mouth->y && iy < s_mouth->y + s_mouth->h) on[n_on++] = s_mouth;
         int32_t sx = fx_fp + (int32_t)((x0 - cx) * step_fp);
         for (int x = x0; x <= x1; x++, sx += step_fp) {
-            uint16_t px = sx < 0 || sx > max_fp ? 0 : src[sx >> 16];
+            uint16_t px = 0;
+            if (sx >= 0 && sx <= max_fp) {
+                int ix = sx >> 16;
+                px = src[ix];
+                for (int k = 0; k < n_on; k++) {
+                    const muse_photo_patch_t *q = on[k];
+                    if (ix >= q->x && ix < q->x + q->w) {
+                        px = q->px[(size_t)(iy - q->y) * q->w + (ix - q->x)];
+                        break;
+                    }
+                }
+            }
             row[x - x0] = s_bright < 16 ? dim(px, s_bright) : px;
         }
     }

@@ -33,6 +33,27 @@
 extern const uint16_t muse_photo_px[];
 extern const int muse_photo_side;
 
+/* The face's moving parts, drawn by tools/muse/photo_avatar.py from the
+ * picture itself (--eyes, --mouth): each is a rectangle of the picture, in its
+ * own pixels, swapped in while that part moves. None without those options. */
+typedef enum {
+    MUSE_PHOTO_PATCH_NONE,
+    MUSE_PHOTO_EYES_CLOSED,   /* a blink */
+    MUSE_PHOTO_EYES_HAPPY,    /* closed in an upward curve: petted */
+    MUSE_PHOTO_MOUTH_1,       /* open, small to wide, with Muse's voice */
+    MUSE_PHOTO_MOUTH_2,
+    MUSE_PHOTO_MOUTH_3,
+} muse_photo_part_t;
+
+typedef struct {
+    muse_photo_part_t part;
+    int16_t x, y, w, h;       /* in the picture's pixels */
+    const uint16_t *px;       /* w * h, RGB565 */
+} muse_photo_patch_t;
+
+extern const muse_photo_patch_t muse_photo_patches[];
+extern const int muse_photo_patch_count;
+
 /* Moves the picture for this frame. True if what it shows changed. */
 bool muse_photo_render(const muse_pose_t *pose);
 

@@ -67,7 +67,7 @@ static const char *TAG = "muse_voice";
 #if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH
 #define PTT_READY_CAPTION "HOLD YELLOW TO TALK"   /* its talk key is the yellow one */
 #else
-#define PTT_READY_CAPTION "HOLD TO TALK"
+#define PTT_READY_CAPTION "PUSH TO TALK"
 #endif
 #define REST_BACKSTOP_MS 60000
 

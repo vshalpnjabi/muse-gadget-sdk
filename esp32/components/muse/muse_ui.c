@@ -76,7 +76,13 @@ static const char *TAG = "muse_ui";
 #define ART_BLANK_ROWS 3        /* Muse's art never reaches the grid's bottom rows */
 #define MINI_CELL_PX 2          /* Muse's grid cells over a reply that's read */
 #define ANSWER_MS 300           /* Muse making room for a reply, and back */
+#if CONFIG_MUSE_UI_PLAIN_SPEAKER
+#define PLAIN_SPEAKER 1
+#define SPEAKER_PX 44           /* a bare icon, the mic's size; the touch area stays generous */
+#else
+#define PLAIN_SPEAKER 0
 #define SPEAKER_PX 64
+#endif
 #define SPEAKER_GROW_PX 8       /* how much the speaker button swells while held */
 #define SPEAKER_HOLD_MS 400     /* LVGL's long press */
 
@@ -198,6 +204,16 @@ static float s_level;
 static int s_shown_state = -1;
 static const char *s_shown_name;
 static const char *s_idle_name = "READY";   /* idle's label: set by the Wi-Fi state */
+#if CONFIG_MUSE_UI_NO_AUX_ICON
+#define NO_AUX_ICON 1   /* no power (or menu) icon beside the second button */
+#else
+#define NO_AUX_ICON 0
+#endif
+#if CONFIG_MUSE_UI_NO_RING
+#define NO_RING 1   /* no progress ring around the bezel */
+#else
+#define NO_RING 0
+#endif
 #if CONFIG_MUSE_UI_BATTERY_PERCENT_ONLY
 #define BATTERY_PERCENT_ONLY 1
 #else
@@ -585,7 +601,7 @@ static void build_button_icons(lv_obj_t *face)
 
     /* Without touch the aux button opens the menu rather than sleeping. A board
      * that leaves aux_hint out has no button to put an icon beside. */
-    if (a->align == LV_ALIGN_DEFAULT) {
+    if (a->align == LV_ALIGN_DEFAULT || NO_AUX_ICON) {
         return;
     }
     s_aux_icon = make_label(face, s_small ? &lv_font_montserrat_14 : &lv_font_montserrat_28, COLOR_DIM);
@@ -733,9 +749,14 @@ static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t co
 
 static void show_speaker(bool on)
 {
+#if CONFIG_MUSE_UI_PLAIN_SPEAKER
+    /* A bare icon like the mic beside it: dim when on, red when muted. */
+    lv_obj_set_style_text_color(s_speaker_icon, lv_color_hex(on ? COLOR_DIM : COLOR_MIC_MUTED), 0);
+#else
     /* Off is the one that stands out, like a lit flashlight button. */
     lv_obj_set_style_bg_color(s_speaker, lv_color_hex(on ? COLOR_METER_OFF : COLOR_LIT), 0);
     lv_obj_set_style_text_color(s_speaker_icon, lv_color_hex(on ? COLOR_DIM : 0x000000), 0);
+#endif
     lv_label_set_text(s_speaker_icon, on ? LV_SYMBOL_VOLUME_MAX : LV_SYMBOL_MUTE);
     s_shown_speaker = on;
 }
@@ -774,10 +795,10 @@ static void on_speaker_event(lv_event_t *e)
         }
         break;
     case LV_EVENT_SHORT_CLICKED: {
-        /* A tap steps the volume (25, 50, 75, 100, then 25 again); off, it turns the speaker back on. */
+        /* A tap steps the volume (10, 20, ... 100, then 10 again); off, it turns the speaker back on. */
         int vol = muse_settings_volume();
         if (on) {
-            vol = vol >= 100 ? 25 : (vol / 25 + 1) * 25;
+            vol = vol >= 100 ? 10 : (vol / 10 + 1) * 10;
             muse_settings_set_volume(vol);
         } else {
             muse_settings_set_speaker_on(true);
@@ -806,7 +827,7 @@ static void build_speaker(lv_obj_t *face, int x, int y)
     lv_obj_remove_style_all(s_speaker);
     lv_obj_set_size(s_speaker, SPEAKER_PX, SPEAKER_PX);
     lv_obj_set_style_radius(s_speaker, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_opa(s_speaker, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_opa(s_speaker, PLAIN_SPEAKER ? LV_OPA_TRANSP : LV_OPA_COVER, 0);
     lv_obj_remove_flag(s_speaker, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_ext_click_area(s_speaker, 12);   /* a fingertip is bigger than the circle */
     static const lv_event_code_t EVENTS[] = { LV_EVENT_PRESSED, LV_EVENT_LONG_PRESSED, LV_EVENT_SHORT_CLICKED,
@@ -1227,7 +1248,7 @@ static void build_screen(void)
         lv_obj_set_size(s_bar, 0, 6);
         lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, 0);
         lv_obj_align(s_bar, LV_ALIGN_BOTTOM_LEFT, 0, 0);
-    } else if (!s_small) {
+    } else if (!s_small && !NO_RING) {
         /* Progress ring around the bezel. */
         int d = (s_w < s_h ? s_w : s_h) - 8;
         s_ring = lv_arc_create(face);
@@ -1931,9 +1952,13 @@ static void update_status(muse_mode_t mode, float now)
         uint32_t working = muse_pixel_working_accent();
         if (working) accent = working;   /* the ring and label match the working avatar */
     }
-#if CONFIG_MUSE_PTT_CALLS
+#if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
+    /* The StopWatch has no caption for it: its call's state is the label.
+     * Other boards say it once, in the caption at the bottom. */
     const char *call_name = muse_voice_call_label();   /* HOLD TO TALK, LISTENING, ... */
     if (call_name) name = call_name;
+#elif CONFIG_MUSE_REALTIME_VOICE
+    if (muse_voice_call_view() == MUSE_VOICE_VIEW_CONNECTING) name = "";   /* the caption says CONNECTING */
 #endif
 #if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
     const char *hint = muse_voice_call_hint();
@@ -1962,7 +1987,7 @@ static void update_status(muse_mode_t mode, float now)
         lv_obj_set_style_text_color(s_state_lbl, lv_color_hex(accent), 0);
         if (s_ring) {
             lv_obj_set_style_arc_color(s_ring, lv_color_hex(accent), LV_PART_INDICATOR);
-        } else {
+        } else if (s_bar) {   /* neither with CONFIG_MUSE_UI_NO_RING */
             lv_obj_set_style_bg_color(s_bar, lv_color_hex(accent), 0);
         }
         set_mic_color(mode == MUSE_MODE_LISTENING ? accent : COLOR_DIM);   /* legacy face icon */
@@ -1992,7 +2017,7 @@ static void update_status(muse_mode_t mode, float now)
             lv_arc_set_value(s_ring, ring);
             s_ring_value = ring;
         }
-    } else {
+    } else if (s_bar) {
         /* Bar along the bottom edge; a sliding segment while thinking. */
         int x = mode == MUSE_MODE_THINKING ? (int)(now * s_w) % s_w : 0;
         int w = ring * s_w / RING_RANGE;

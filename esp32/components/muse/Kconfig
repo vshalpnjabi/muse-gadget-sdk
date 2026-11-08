@@ -441,6 +441,30 @@ menu "Muse"
             trouble (NO WI-FI, RECONNECTING, ...) and the other modes still
             show there.
 
+    config MUSE_UI_NO_AUX_ICON
+        bool "No icon beside the second button"
+        default n
+        help
+            Leaves out the power icon (the menu icon on boards without touch)
+            the face shows beside the board's second button. The button
+            works as before.
+
+    config MUSE_UI_PLAIN_SPEAKER
+        bool "Speaker button as a bare icon"
+        default n
+        help
+            The face's speaker button drops its round background and shows
+            just its icon, about the mic icon's size: dim when on, red when
+            muted. Taps and holds work as before.
+
+    config MUSE_UI_NO_RING
+        bool "No ring around the screen's edge"
+        default n
+        help
+            Leaves out the coloured ring round the bezel that shows Muse's
+            mode and a recording's or reply's progress. The face, its labels
+            and captions are unchanged.
+
     config MUSE_UI_BATTERY_PERCENT_ONLY
         bool "Show the battery as a bare percentage"
         default n
