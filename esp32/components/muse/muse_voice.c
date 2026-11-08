@@ -55,6 +55,20 @@ static const char *TAG = "muse_voice";
 #define PRE_CHUNKS 16                                  /* 320 ms of audio kept from before the press */
 #endif
 #define SETTLE_CHUNKS 10   /* after Muse makes a sound, 200 ms of capture is its own tail */
+/* Push-to-talk calls on a board with one talk button: a tap (shorter than
+ * MIN_HELD_FRAMES) hangs up a push-to-talk call, and outside one starts a
+ * hands-free call. The StopWatch has a separate button to hang up. */
+#if CONFIG_MUSE_PTT_CALLS && !CONFIG_MUSE_BOARD_M5STACK_STOPWATCH
+#define ONE_BUTTON_PTT 1
+#else
+#define ONE_BUTTON_PTT 0
+#endif
+#define TAP_US (1000000LL * MIN_HELD_FRAMES / MUSE_AUDIO_RATE)
+#if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH
+#define PTT_READY_CAPTION "HOLD YELLOW TO TALK"   /* its talk key is the yellow one */
+#else
+#define PTT_READY_CAPTION "HOLD TO TALK"
+#endif
 #define REST_BACKSTOP_MS 60000
 
 #if CONFIG_MUSE_HATCH
@@ -89,7 +103,7 @@ bool muse_voice_in_call(void) { return muse_voice_call_view() != MUSE_VOICE_VIEW
 bool muse_voice_ptt_call(void) { return muse_voice_in_call() && atomic_load(&s_ptt_call); }
 bool muse_voice_ptt_enabled(void)
 {
-#if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
+#if CONFIG_MUSE_PTT_CALLS
     return !muse_settings_voice_notes();
 #else
     return false;
@@ -933,6 +947,7 @@ typedef struct {
     unsigned press;
     uint32_t input_epoch;
     int64_t give_up, release_until;
+    int64_t down_us;   /* ONE_BUTTON_PTT: when the press in this call began (0: the one that opened it) */
     size_t release_frames;
     muse_vc_gate_t gate;
 } call_ui_t;
@@ -964,9 +979,14 @@ static void call_input(call_ui_t *c)
             finish_release(c);   /* old press closes before the new one opens */
             ++c->press;
             c->held = true;
+            c->down_us = esp_timer_get_time();
             muse_voice_call_set_talking(true);
             muse_vc_gate_init(&c->gate, false, 0);
             c->awaiting = false;
+        } else if (ONE_BUTTON_PTT && c->ptt && ev.type == MUSE_PTT_UP && c->held && c->down_us &&
+                   esp_timer_get_time() - c->down_us < TAP_US) {
+            c->hung_up = true;   /* a tap, not speech: it hangs up (the call ends, whatever it caught) */
+            muse_voice_call_set_talking(false);
         } else if (c->ptt && ev.type == MUSE_PTT_UP && c->held) {
             c->held = false;
             muse_state_set_level(0);
@@ -1047,7 +1067,7 @@ static void run_call(bool ptt, size_t waking_chunks)
             switch (ev) {
             case MUSE_VOICE_CALL_EV_READY:
                 c.live = true;
-                muse_state_set_caption(ptt ? "HOLD YELLOW TO TALK" : "IN A CALL - PRESS TO HANG UP");
+                muse_state_set_caption(ptt ? PTT_READY_CAPTION : "IN A CALL - PRESS TO HANG UP");
                 break;
             case MUSE_VOICE_CALL_EV_HEARD:
                 muse_state_set_caption("\"%s\"", text);
@@ -1116,7 +1136,7 @@ static void run_call(bool ptt, size_t waking_chunks)
             c.release_until || c.awaiting || status.sending ? MUSE_VOICE_VIEW_THINKING :
             status.working ? MUSE_VOICE_VIEW_WORKING : MUSE_VOICE_VIEW_READY;
         if (ptt && view == MUSE_VOICE_VIEW_READY && muse_voice_call_view() != view) {
-            muse_state_set_caption("HOLD YELLOW TO TALK");
+            muse_state_set_caption(PTT_READY_CAPTION);
         }
         /* level also animates the mouth; only LISTENING displays the meter.
          * Clear before changing modes so speaker level cannot cross into it. */
@@ -1154,7 +1174,17 @@ static void run_call(bool ptt, size_t waking_chunks)
     muse_audio_write(silence, MUSE_AUDIO_CHUNK);
     muse_state_set_level(0);
     s_monitor_db = -100.0f;
-    if (!atomic_load(&s_shutdown)) go_idle(ended && text[0] ? text : "CALL ENDED");
+    if (!atomic_load(&s_shutdown)) {
+        const char *why = ended && text[0] ? text : "CALL ENDED";
+        if (!strncmp(why, "CALL ENDED", 10)) {
+            /* An ordinary ending (hung up, all quiet, Muse said goodbye) only
+             * needs a moment; a failure's caption stays up, as go_idle's do. */
+            go_idle("");
+            muse_state_set_hint(why);
+        } else {
+            go_idle(why);
+        }
+    }
     atomic_store(&s_call_view, MUSE_VOICE_VIEW_NONE);
     atomic_store(&s_ptt_call, false);
 }
@@ -1232,6 +1262,29 @@ static void voice_task(void *arg)
             wake = ev.wake;
         }
         bool ptt = muse_voice_ptt_enabled();
+#if ONE_BUTTON_PTT && CONFIG_MUSE_REALTIME_VOICE
+        if (ptt) {
+            /* One button: hold a tap's length to talk in a push-to-talk call
+             * (what was said meanwhile goes first); a quicker tap starts a
+             * hands-free call, or only wakes the screen if it woke it. */
+            bool held = ptt_held_on_waking();
+            if (!held || atomic_load(&s_shutdown)) {
+                pending_down = false;
+                muse_input_clear_call_pending(s_press_mark);
+                if (!held && !wake && !atomic_load(&s_shutdown)) {
+                    muse_wifi_power(MUSE_WIFI_FULL);
+                    if (muse_voice_call_ready()) run_call(false, 0);
+                    else {
+                        if (!muse_wifi_connected()) muse_wifi_apply();
+                        go_idle(not_ready_reason());
+                    }
+                }
+                pre_reset();
+                continue;
+            }
+            wake = true;   /* run_call() takes the held audio from the pre-roll */
+        } else
+#endif
         if (wake && !(ptt ? ptt_held_on_waking() : held_on_waking())) {
             /* A tap: it only woke Muse. A press posted since keeps its own mark. */
             muse_input_clear_call_pending(s_press_mark);

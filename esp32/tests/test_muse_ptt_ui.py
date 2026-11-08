@@ -61,6 +61,8 @@ class StopWatchPTT(unittest.TestCase):
                 '#pragma once\n'
                 f'#define CONFIG_MUSE_BOARD_M5STACK_STOPWATCH {board}\n'
                 f'#define CONFIG_MUSE_REALTIME_VOICE {realtime}\n'
+                # As Kconfig defaults it: on for the StopWatch with live calls.
+                f'#define CONFIG_MUSE_PTT_CALLS {1 if board and realtime else 0}\n'
                 '#define CONFIG_MUSE_HATCH 1\n#define CONFIG_SPIRAM 1\n'
                 '#define CONFIG_MUSE_DEFAULT_VOLUME 20\n')
             ui = (MUSE / 'muse_ui.c').read_text()

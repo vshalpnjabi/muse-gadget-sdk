@@ -463,6 +463,19 @@ menu "Muse"
 
 if MUSE_REALTIME_VOICE
 
+    config MUSE_PTT_CALLS
+        bool "Hold the talk button to talk to Muse live"
+        default y if MUSE_BOARD_M5STACK_STOPWATCH
+        default n
+        help
+            Holding the talk button opens a push-to-talk call in place of
+            recording a voice note: Muse hears you while you hold and answers
+            aloud when you let go, and the call stays open for the next hold
+            until the idle limit. On the StopWatch, yellow talks and blue
+            hangs up. On a board with one talk button, a tap hangs up during
+            such a call, and outside one starts a hands-free call as before.
+            Settings > Sound > Voice notes turns voice notes back on.
+
     config MUSE_REALTIME_VOICE_APP_ID
         string "App ID the voice session connects as"
         default "hatch-web"

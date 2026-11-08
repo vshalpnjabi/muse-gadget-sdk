@@ -1863,10 +1863,12 @@ static void update_status(muse_mode_t mode, float now)
         uint32_t working = muse_pixel_working_accent();
         if (working) accent = working;   /* the ring and label match the working avatar */
     }
-#if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
-    const char *call_name = muse_voice_call_label();
-    const char *hint = muse_voice_call_hint();
+#if CONFIG_MUSE_PTT_CALLS
+    const char *call_name = muse_voice_call_label();   /* HOLD TO TALK, LISTENING, ... */
     if (call_name) name = call_name;
+#endif
+#if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
+    const char *hint = muse_voice_call_hint();
     if (s_talk_hint_lbl) {
         /* Hidden over the settings rows, as the rim icons are, and once the
          * call is ending (an empty hint). */
