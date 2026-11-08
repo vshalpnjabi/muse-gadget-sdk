@@ -396,6 +396,10 @@ static void vg_task(void *arg)
              * first window waits for 3 s of this one's. */
             posted_at = s_written + (WINDOW_SAMPLES - STEP_SAMPLES);
         }
+        if (!on && was_active) {
+            atomic_store(&s_have, false);   /* the call's over: grey while idle */
+            s_rejects = 0;
+        }
         was_active = on;
         if (!on || !muse_wifi_connected() || now < next_post) {
             continue;

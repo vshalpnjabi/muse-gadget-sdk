@@ -199,7 +199,7 @@ static volatile int s_rotate_override = -1;   /* muse_ui_rotate(), -1: as held *
 #if CONFIG_MUSE_CLOCK
 static lv_obj_t *s_clock_lbl, *s_dnd_lbl;
 #if CONFIG_MUSE_VOICE_GUARD
-static lv_obj_t *s_vg_dot, *s_vg_lbl;   /* the voice guard's latest verdict */
+static lv_obj_t *s_vg_dot;   /* the voice guard's latest verdict */
 #endif
 #endif
 #if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
@@ -1409,7 +1409,6 @@ static void build_screen(void)
     lv_obj_set_style_bg_opa(s_vg_dot, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(s_vg_dot, lv_color_hex(0x808080), 0);
     lv_obj_add_flag(s_vg_dot, LV_OBJ_FLAG_HIDDEN);
-    s_vg_lbl = make_label(status, &lv_font_montserrat_14, COLOR_DIM);
 #endif
     s_wifi_icon = make_label(status, &lv_font_montserrat_14, COLOR_DIM);
     s_ble_icon = make_label(status, &lv_font_montserrat_14, COLOR_DIM);
@@ -1995,10 +1994,6 @@ static void update_vg(void)
         float score;
         bool accept;
         bool have = muse_vg_latest(&score, &accept);
-        char vg[8] = "";
-        if (have) {
-            snprintf(vg, sizeof(vg), "%.2f", score);
-        }
         lv_obj_remove_flag(s_vg_dot, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_style_bg_color(s_vg_dot, lv_color_hex(!have ? 0x808080 : accept ? 0x34C759 : 0xFF3B30), 0);
         /* A blink on each verdict, so every window shows as it lands. */
@@ -2011,9 +2006,6 @@ static void update_vg(void)
         lv_opa_t opa = (int32_t)(blink_until - ms) > 0 ? LV_OPA_20 : LV_OPA_COVER;
         if (lv_obj_get_style_bg_opa(s_vg_dot, 0) != opa) {
             lv_obj_set_style_bg_opa(s_vg_dot, opa, 0);
-        }
-        if (strcmp(vg, lv_label_get_text(s_vg_lbl))) {
-            lv_label_set_text(s_vg_lbl, vg);
         }
     }
 }
