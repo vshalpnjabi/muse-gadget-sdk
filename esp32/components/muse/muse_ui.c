@@ -51,6 +51,9 @@
 #include "muse_text.h"
 #include "muse_wifi.h"
 #include "muse_voice.h"
+#if CONFIG_MUSE_UI_TOUCH_SOUNDS
+#include "esp_random.h"
+#endif
 #if CONFIG_MUSE_VIDEO
 #include "muse_video.h"
 #endif
@@ -612,7 +615,18 @@ static void build_button_icons(lv_obj_t *face)
 static void on_canvas_clicked(lv_event_t *e)
 {
     (void)e;
+#if MUSE_HAS_PHOTO_AVATAR
+    if (s_photo) {
+        muse_photo_poke();   /* a different reaction from the last */
+    }
+#endif
     muse_state_make_happy();
+#if CONFIG_MUSE_UI_TOUCH_SOUNDS
+    /* Now and then a little chirp too, only while Muse is idle and the speaker's on. */
+    if (muse_settings_speaker_on() && muse_state_mode(NULL) == MUSE_MODE_IDLE && esp_random() % 100 < 40) {
+        muse_voice_request_chirp();
+    }
+#endif
 }
 
 static const lv_font_t *font_pick(const lv_font_t *full, const lv_font_t *compact)
@@ -635,7 +649,9 @@ LV_FONT_DECLARE(muse_font_latin_16)
  * falls back to Unifont's 16x16 CJK, the same cell, for what unscii lacks. */
 static const lv_font_t *caption_font(void)
 {
-#if CONFIG_MUSE_CJK_FONT
+#if CONFIG_MUSE_UI_SMALL_CAPTIONS && !CONFIG_MUSE_CJK_FONT && !CONFIG_MUSE_LATIN_FONT
+    return &lv_font_montserrat_14;   /* smaller, smoother than unscii-16; pages are sized by its 'M' */
+#elif CONFIG_MUSE_CJK_FONT
     static lv_font_t font;
     if (!font.get_glyph_dsc) {
         font = lv_font_unscii_16;
@@ -1017,6 +1033,27 @@ static void build_answer(lv_obj_t *face, int ring_in)
             set_reply_box(l, c, n, top, cw, pitch);
         }
     }
+#if CONFIG_MUSE_UI_FIXED_AVATAR
+    /* Muse keeps its size and place in both: the reply is a band at the
+     * bottom, as wide as the round screen lets it be there, on a dark backing
+     * where it crosses Muse. */
+    for (int k = ANSWER_HEARD; k <= ANSWER_READ; k++) {
+        answer_layout_t *f = &s_answers[k];
+        int lines = k == ANSWER_HEARD ? 2 : 3;
+        int hh = lines * pitch - CAPTION_LINE_SPACE;
+        f->px = s_canvas_px;
+        f->y = s_big_y;
+        f->align = LV_TEXT_ALIGN_CENTER;
+        for (int c = 32; c >= 8; c--) {
+            int t = reply_bottom(c * cw, ring_in) - hh;
+            /* Low on the screen, over Muse's shoulders rather than its face. */
+            if ((c + 1) * lines <= MUSE_CAPTION_MAX * 2 / 3 && t >= s_h / 4 && fits_across(c * cw, t, ring_in)) {
+                set_reply_box(f, c, lines, t, cw, pitch);
+                break;
+            }
+        }
+    }
+#endif
     ESP_LOGI(TAG, "reply pages: %d x %d heard, %d x %d read", s_answers[ANSWER_HEARD].cols,
              s_answers[ANSWER_HEARD].lines, l->cols, l->lines);
 
@@ -1026,6 +1063,11 @@ static void build_answer(lv_obj_t *face, int ring_in)
     lv_label_set_long_mode(s_reply_lbl, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_remove_flag(s_reply_lbl, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_reply_lbl, LV_OBJ_FLAG_HIDDEN);
+#if CONFIG_MUSE_UI_FIXED_AVATAR
+    lv_obj_set_style_bg_color(s_reply_lbl, lv_color_black(), 0);   /* legible over Muse */
+    lv_obj_set_style_bg_opa(s_reply_lbl, LV_OPA_60, 0);
+    lv_obj_set_style_radius(s_reply_lbl, 6, 0);
+#endif
 #if CONFIG_MUSE_BOARD_SENSECAP_WATCHER
     s_review_position = make_label(face, &lv_font_unscii_8, COLOR_DIM);
     lv_obj_align(s_review_position, LV_ALIGN_BOTTOM_MID, 0, -30);

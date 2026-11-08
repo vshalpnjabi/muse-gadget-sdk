@@ -128,6 +128,15 @@ static void idle_life(float t, float mt, float *dx, float *dy, muse_photo_part_t
     }
 }
 
+/* Touch reactions, a different one each pet (muse_photo_poke). */
+enum { REACT_HAPPY, REACT_WINK, REACT_GIGGLE, REACT_SURPRISE, REACT_COUNT };
+static int s_reaction;
+
+void muse_photo_poke(void)
+{
+    s_reaction = (s_reaction + 1 + (int)(next_rand() * (REACT_COUNT - 1))) % REACT_COUNT;
+}
+
 bool muse_photo_render(const muse_pose_t *p)
 {
     float t = p->t, mt = p->mode_t, lvl = clampf(p->level, 0, 1);
@@ -162,8 +171,29 @@ bool muse_photo_render(const muse_pose_t *p)
         break;
     }
     bool happy = p->happy > 0.25f;
+    muse_photo_part_t pet_eyes = MUSE_PHOTO_EYES_HAPPY, pet_mouth = MUSE_PHOTO_MOUTH_1;
     if (p->happy > 0.01f) {
-        dy -= 6.0f * p->happy * fabsf(sinf(TAU * 2.0f * t));   /* a bounce when petted */
+        float h = p->happy;
+        switch (s_reaction) {
+        case REACT_WINK:
+            pet_eyes = MUSE_PHOTO_EYES_WINK;
+            pet_mouth = MUSE_PHOTO_MOUTH_SMILE;
+            dy -= 2.0f * h;
+            break;
+        case REACT_GIGGLE:
+            dx += 3.0f * h * sinf(TAU * 6.0f * t);   /* a little wiggle */
+            dy -= 2.0f * h * fabsf(sinf(TAU * 3.0f * t));
+            pet_mouth = MUSE_PHOTO_MOUTH_2;
+            break;
+        case REACT_SURPRISE:
+            pet_eyes = MUSE_PHOTO_PATCH_NONE;      /* wide open */
+            pet_mouth = MUSE_PHOTO_MOUTH_2;        /* an "o" */
+            zoom += 0.04f * h;                     /* a pop towards you */
+            break;
+        default:
+            dy -= 6.0f * h * fabsf(sinf(TAU * 2.0f * t));   /* a bounce when petted */
+            break;
+        }
     }
     muse_photo_part_t idle_eyes = MUSE_PHOTO_PATCH_NONE, idle_mouth = MUSE_PHOTO_PATCH_NONE;
     if (p->mode == MUSE_MODE_IDLE && !happy) {
@@ -180,7 +210,7 @@ bool muse_photo_render(const muse_pose_t *p)
     }
     const muse_photo_patch_t *eyes = NULL;
     if (happy) {
-        eyes = patch(MUSE_PHOTO_EYES_HAPPY);
+        eyes = pet_eyes == MUSE_PHOTO_PATCH_NONE ? NULL : patch(pet_eyes);
     } else if (t < s_blink_end || (p->mode == MUSE_MODE_OFF && mt > 0.3f)) {
         eyes = patch(MUSE_PHOTO_EYES_CLOSED);
     } else if (idle_eyes != MUSE_PHOTO_PATCH_NONE) {
@@ -192,7 +222,7 @@ bool muse_photo_render(const muse_pose_t *p)
         mouth = lvl > 0.55f ? patch(MUSE_PHOTO_MOUTH_3) : lvl > 0.25f ? patch(MUSE_PHOTO_MOUTH_2)
               : lvl > 0.06f ? patch(MUSE_PHOTO_MOUTH_1) : NULL;
     } else if (happy) {
-        mouth = patch(MUSE_PHOTO_MOUTH_1);
+        mouth = patch(pet_mouth);
     } else if (idle_mouth != MUSE_PHOTO_PATCH_NONE) {
         mouth = patch(idle_mouth);
     }
