@@ -92,6 +92,9 @@ void muse_settings_set_theme(int theme);
 /* Settings > Appearance > Auto-rotate: the screen turns to how the board is held (motion sensor). */
 bool muse_settings_autorotate(void);
 void muse_settings_set_autorotate(bool on);
+/* Settings > Appearance > 24-hour clock: 21:47 rather than 9:47 on the face (on by default). */
+bool muse_settings_clock24(void);
+void muse_settings_set_clock24(bool on);
 
 /* Do not disturb (Settings > Sleep, or asked of Muse): the board makes none
  * of its own sounds (touch, motion, chirps); Muse's answers to you still play. */

@@ -1624,6 +1624,13 @@ static void on_rotate_sw(lv_event_t *e)
 }
 #endif
 
+#if CONFIG_MUSE_CLOCK
+static void on_clock24_sw(lv_event_t *e)
+{
+    muse_settings_set_clock24(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
+}
+#endif
+
 static void on_captions_sw(lv_event_t *e)
 {
     muse_settings_set_captions(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
@@ -1648,6 +1655,9 @@ static void build_appearance_page(lv_obj_t *tile)
 #if CONFIG_MUSE_IMU
     switch_row(list, "Auto-rotate", muse_settings_autorotate(), on_rotate_sw);
     note(list, "The screen turns to how you hold the board.");
+#endif
+#if CONFIG_MUSE_CLOCK
+    switch_row(list, "24-hour clock", muse_settings_clock24(), on_clock24_sw);
 #endif
     note(list, "Theme:");
     for (int i = 0; i < muse_theme_count() && i < THEMES_MAX; i++) {

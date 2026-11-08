@@ -2040,7 +2040,11 @@ static void update_power(float now)
     struct tm tm;
     char clock[8] = "";
     if (muse_clock_now(&tm)) {
-        snprintf(clock, sizeof(clock), "%d:%02d", tm.tm_hour % 12 ? tm.tm_hour % 12 : 12, tm.tm_min);
+        if (muse_settings_clock24()) {
+            snprintf(clock, sizeof(clock), "%02d:%02d", tm.tm_hour, tm.tm_min);
+        } else {
+            snprintf(clock, sizeof(clock), "%d:%02d", tm.tm_hour % 12 ? tm.tm_hour % 12 : 12, tm.tm_min);
+        }
     }
     if (strcmp(clock, lv_label_get_text(s_clock_lbl))) {
         lv_label_set_text(s_clock_lbl, clock);

@@ -81,6 +81,7 @@ static atomic_bool s_captions = true;
 static atomic_bool s_dnd;
 static atomic_int s_spk_boost = CONFIG_MUSE_SPEAKER_MAX_DB;
 static atomic_bool s_autorotate;
+static atomic_bool s_clock24 = true;   /* 24-hour time unless set otherwise */
 static atomic_int s_theme = CONFIG_MUSE_DEFAULT_THEME;
 static atomic_int s_sleep_from = -1, s_sleep_to = -1;
 static char s_tz[MUSE_TZ_MAX + 1] = CONFIG_MUSE_TIMEZONE;   /* under s_lock */
@@ -158,6 +159,9 @@ esp_err_t muse_settings_init(void)
     }
     if (nvs_get_u8(s_nvs, "rotate", &b) == ESP_OK) {
         atomic_store(&s_autorotate, b != 0);
+    }
+    if (nvs_get_u8(s_nvs, "clock24", &b) == ESP_OK) {
+        atomic_store(&s_clock24, b != 0);
     }
     if (nvs_get_u8(s_nvs, "spk_boost", &b) == ESP_OK && b <= MUSE_SPEAKER_BOOST_MAX) {
         atomic_store(&s_spk_boost, b);
@@ -238,6 +242,14 @@ void muse_settings_set_autorotate(bool on)
 {
     atomic_store(&s_autorotate, on);
     save_u8("rotate", on);
+}
+
+bool muse_settings_clock24(void) { return atomic_load(&s_clock24); }
+
+void muse_settings_set_clock24(bool on)
+{
+    atomic_store(&s_clock24, on);
+    save_u8("clock24", on);
 }
 
 int muse_settings_speaker_boost(void) { return atomic_load(&s_spk_boost); }
