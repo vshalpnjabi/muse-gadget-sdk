@@ -57,6 +57,9 @@ static void on_setting(muse_setting_t what)
     case MUSE_SETTING_MIC_GAIN:
         muse_audio_set_mic_gain(muse_settings_mic_gain());
         break;
+    case MUSE_SETTING_SPEAKER_BOOST:
+        muse_audio_set_speaker_boost(muse_settings_speaker_boost());
+        break;
     case MUSE_SETTING_WIFI:
         muse_wifi_apply();
         break;

@@ -49,7 +49,8 @@ typedef enum {
     MUSE_SETTING_VOICE_NOTES,
     MUSE_SETTING_AVATAR,
     MUSE_SETTING_CAPTIONS,
-    MUSE_SETTING_QUIET,         /* do not disturb, sleep hours or the time zone */
+    MUSE_SETTING_QUIET,
+    MUSE_SETTING_SPEAKER_BOOST,         /* do not disturb, sleep hours or the time zone */
 } muse_setting_t;
 
 /* Which avatar the face shows (Settings > Appearance): the drawn pixel one
@@ -82,6 +83,10 @@ void muse_settings_set_avatar(int which);
 bool muse_settings_captions(void);
 void muse_settings_set_captions(bool on);
 /* Settings > Appearance > Theme: an index into muse_theme_at(), shown after a restart. */
+/* Sound > Speaker boost: the speaker's gain at volume 100, 0..MUSE_SPEAKER_BOOST_MAX dB. */
+#define MUSE_SPEAKER_BOOST_MAX 24
+int muse_settings_speaker_boost(void);
+void muse_settings_set_speaker_boost(int db);
 int muse_settings_theme(void);
 void muse_settings_set_theme(int theme);
 /* Settings > Appearance > Auto-rotate: the screen turns to how the board is held (motion sensor). */

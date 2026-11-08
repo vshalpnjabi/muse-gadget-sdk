@@ -90,6 +90,26 @@ static void apply_volume(int volume)
     }
 }
 
+/* The codec's gain at volume 100, louder than the library's 0 dB on a quiet
+ * speaker; volume 0 stays at -50 dB. The codec keeps the curve across closes
+ * and reopens. */
+static void apply_boost(int db)
+{
+    if (!s_spk || !codecs_reachable()) {
+        return;
+    }
+    esp_codec_dev_vol_map_t map[] = {
+        { .vol = 0, .db_value = -50.0f },
+        { .vol = 100, .db_value = (float)db },
+    };
+    esp_codec_dev_vol_curve_t curve = { .vol_map = map, .count = 2 };
+    if (esp_codec_dev_set_vol_curve(s_spk, &curve) == ESP_CODEC_DEV_OK) {
+        ESP_LOGI(TAG, "speaker: +%d dB at full volume", db);
+    } else {
+        ESP_LOGW(TAG, "speaker: couldn't set the volume curve");
+    }
+}
+
 static void apply_mic_gain(int db)
 {
     if (muse_board->mic_init || (!s_mic && muse_board->mic_read)) {
@@ -178,20 +198,7 @@ esp_err_t muse_audio_init(int volume, int mic_gain_db)
             codec_power(false);
             return err;
         }
-#if CONFIG_MUSE_SPEAKER_MAX_DB > 0
-        /* Louder than the library's 0 dB at full volume; the codec keeps the
-         * curve across closes and reopens. */
-        esp_codec_dev_vol_map_t map[] = {
-            { .vol = 0, .db_value = -50.0f },
-            { .vol = 100, .db_value = (float)CONFIG_MUSE_SPEAKER_MAX_DB },
-        };
-        esp_codec_dev_vol_curve_t curve = { .vol_map = map, .count = 2 };
-        if (esp_codec_dev_set_vol_curve(s_spk, &curve) == ESP_CODEC_DEV_OK) {
-            ESP_LOGI(TAG, "speaker: +%d dB at full volume", CONFIG_MUSE_SPEAKER_MAX_DB);
-        } else {
-            ESP_LOGW(TAG, "speaker: couldn't set the volume curve");
-        }
-#endif
+        apply_boost(muse_settings_speaker_boost());
     }
     muse_audio_set_volume(volume);
     muse_audio_set_mic_gain(mic_gain_db);
@@ -256,6 +263,14 @@ void muse_audio_set_volume(int volume)
 {
     lock();
     apply_volume(volume);
+    unlock();
+}
+
+void muse_audio_set_speaker_boost(int db)
+{
+    lock();
+    apply_boost(db);
+    apply_volume(muse_settings_volume());   /* the same volume, on the new curve */
     unlock();
 }
 

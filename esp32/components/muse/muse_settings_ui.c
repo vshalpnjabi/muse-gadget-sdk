@@ -124,6 +124,7 @@ static lv_obj_t *s_ble_sw, *s_ble_status;
 #if CONFIG_MUSE_PTT_CALLS
 static lv_obj_t *s_notes_sw;
 #endif
+static lv_obj_t *s_boost_sl, *s_boost_val;
 static lv_obj_t *s_spk_sw, *s_vol_val, *s_vol_sl, *s_gain_val, *s_gain_sl, *s_bright_val, *s_bright_sl, *s_mic_bar, *s_mic_val;
 
 /* Sleep page. */
@@ -1269,6 +1270,18 @@ static void on_volume(lv_event_t *e)
     }
 }
 
+static void on_boost(lv_event_t *e)
+{
+    int db = lv_slider_get_value(s_boost_sl);
+    set_val(s_boost_val, "+%d dB", db);
+    if (lv_event_get_code(e) == LV_EVENT_RELEASED) {
+        muse_settings_set_speaker_boost(db);
+        muse_voice_request_chirp();   /* hear how loud it is now */
+    } else {
+        muse_audio_set_speaker_boost(db);
+    }
+}
+
 static void on_gain(lv_event_t *e)
 {
     int db = lv_slider_get_value(s_gain_sl) * 3;
@@ -1315,6 +1328,9 @@ static void build_sound_page(lv_obj_t *tile)
     if (muse_board->audio_init) {
         s_spk_sw = switch_row(list, "Speaker", muse_settings_speaker_on(), on_speaker_sw);
         s_vol_sl = slider(list, "Volume", 0, 100, muse_settings_volume(), &s_vol_val, on_volume);
+        s_boost_sl = slider(list, "Speaker boost", 0, MUSE_SPEAKER_BOOST_MAX, muse_settings_speaker_boost(),
+                            &s_boost_val, on_boost);
+        set_val(s_boost_val, "+%d dB", muse_settings_speaker_boost());
     }
     s_gain_sl = slider(list, "Mic gain", 0, MUSE_MIC_GAIN_MAX / 3, muse_settings_mic_gain() / 3, &s_gain_val, on_gain);
 
@@ -1387,61 +1403,44 @@ static void on_sleep_now(lv_event_t *e)
 }
 
 #if CONFIG_MUSE_CLOCK
-static lv_obj_t *s_hours_sw, *s_from_sl, *s_to_sl, *s_from_val, *s_to_val;
+static lv_obj_t *s_hours_sw, *s_span_arc, *s_dial, *s_dial_lbl, *s_end_btn[2], *s_end_lbl[2];
+static int s_hour[2] = { 22, 7 };   /* from, to, as shown */
+static int s_editing;               /* which of them the dial moves: 0 from, 1 to */
 
 static void on_dnd_sw(lv_event_t *e)
 {
     muse_settings_set_dnd(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
 }
 
-static void hour_text(lv_obj_t *lbl, int h)
+static void hour_str(char *out, size_t cap, int h)
 {
-    char text[12];
-    snprintf(text, sizeof(text), "%d %s", h % 12 ? h % 12 : 12, h < 12 ? "am" : "pm");
-    set_text(lbl, text);
+    snprintf(out, cap, "%d %s", h % 12 ? h % 12 : 12, h < 12 ? "am" : "pm");
 }
 
+/* The dial shows the window (from round to to) as a span, the edited end's knob, and both hours. */
 static void show_hours(void)
 {
-    hour_text(s_from_val, lv_arc_get_value(s_from_sl));
-    hour_text(s_to_val, lv_arc_get_value(s_to_sl));
+    char a[12], b[12], both[32];
+    hour_str(a, sizeof(a), s_hour[0]);
+    hour_str(b, sizeof(b), s_hour[1]);
+    snprintf(both, sizeof(both), "%s - %s", a, b);
+    set_text(s_dial_lbl, both);
+    int a0 = s_hour[0] * 15, a1 = s_hour[1] * 15;   /* 15 degrees an hour */
+    lv_arc_set_angles(s_span_arc, a0, a1 > a0 ? a1 : a1 + 360);
+    for (int i = 0; i < 2; i++) {
+        char t[20];
+        snprintf(t, sizeof(t), "%s %s", i ? "To" : "From", i ? b : a);
+        set_text(s_end_lbl[i], t);
+        lv_obj_set_style_bg_color(s_end_btn[i], lv_color_hex(i == s_editing ? COLOR_CARD_PRESSED : COLOR_CARD), 0);
+        lv_obj_set_style_border_color(s_end_btn[i], lv_color_hex(COLOR_ACCENT), 0);
+        lv_obj_set_style_border_width(s_end_btn[i], i == s_editing ? 2 : 0, 0);
+    }
 }
 
-/* A clock dial for an hour: a full circle of 24 hours from the top, the hour
- * in its middle. Drag round it; letting go saves. */
-static lv_obj_t *hour_dial(lv_obj_t *list, const char *title, int hour, lv_obj_t **value_out, lv_event_cb_t cb)
-{
-    lv_obj_t *c = lv_obj_create(list);
-    lv_obj_remove_style_all(c);
-    lv_obj_set_size(c, lv_pct(100), 190);
-    lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
-    label(c, &lv_font_montserrat_16, COLOR_TEXT, title);
-    lv_obj_t *arc = lv_arc_create(c);
-    lv_obj_set_size(arc, 150, 150);
-    lv_obj_align(arc, LV_ALIGN_TOP_MID, 0, 28);
-    lv_arc_set_range(arc, 0, 23);
-    lv_arc_set_bg_angles(arc, 0, 360);
-    lv_arc_set_rotation(arc, 270);   /* midnight at the top */
-    lv_arc_set_value(arc, hour);
-    lv_obj_set_style_arc_color(arc, lv_color_hex(muse_theme()->slider_bg), LV_PART_MAIN);
-    lv_obj_set_style_arc_color(arc, lv_color_hex(COLOR_ACCENT), LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(arc, lv_color_hex(COLOR_TEXT), LV_PART_KNOB);
-    lv_obj_set_style_arc_width(arc, 10, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(arc, 10, LV_PART_INDICATOR);
-    lv_obj_add_event_cb(arc, cb, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_add_event_cb(arc, cb, LV_EVENT_RELEASED, NULL);
-    lv_obj_t *v = label(c, &lv_font_montserrat_20, COLOR_ACCENT, "");
-    lv_obj_align_to(v, arc, LV_ALIGN_CENTER, 0, 0);
-    *value_out = v;
-    return arc;
-}
-
-/* The switch or either slider: store the hours, or none. */
 static void save_hours(void)
 {
     bool on = lv_obj_has_state(s_hours_sw, LV_STATE_CHECKED);
-    int from = lv_arc_get_value(s_from_sl), to = lv_arc_get_value(s_to_sl);
-    muse_settings_set_sleep_hours(on ? from : -1, on ? to : -1);
+    muse_settings_set_sleep_hours(on ? s_hour[0] : -1, on ? s_hour[1] : -1);
 }
 
 static void on_hours_sw(lv_event_t *e)
@@ -1450,12 +1449,70 @@ static void on_hours_sw(lv_event_t *e)
     save_hours();
 }
 
-static void on_hours_sl(lv_event_t *e)
+static void on_dial(lv_event_t *e)
 {
+    s_hour[s_editing] = lv_arc_get_value(s_dial);
     show_hours();
     if (lv_event_get_code(e) == LV_EVENT_RELEASED) {
         save_hours();
     }
+}
+
+static void on_pick_end(lv_event_t *e)
+{
+    s_editing = (int)(intptr_t)lv_event_get_user_data(e);
+    lv_arc_set_value(s_dial, s_hour[s_editing]);
+    show_hours();
+}
+
+/* One clock dial for both: the sleep window as a span round 24 hours
+ * (midnight at the top); tap From or To below, then drag round the dial. */
+static void build_hours_dial(lv_obj_t *list)
+{
+    lv_obj_t *c = lv_obj_create(list);
+    lv_obj_remove_style_all(c);
+    lv_obj_set_size(c, lv_pct(100), 230);
+    lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_span_arc = lv_arc_create(c);   /* the window, under the dial; not touchable */
+    lv_obj_set_size(s_span_arc, 170, 170);
+    lv_obj_align(s_span_arc, LV_ALIGN_TOP_MID, 0, 4);
+    lv_arc_set_bg_angles(s_span_arc, 0, 360);
+    lv_arc_set_rotation(s_span_arc, 270);
+    lv_obj_remove_style(s_span_arc, NULL, LV_PART_KNOB);
+    lv_obj_remove_flag(s_span_arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_arc_color(s_span_arc, lv_color_hex(muse_theme()->slider_bg), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(s_span_arc, lv_color_hex(COLOR_ACCENT), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(s_span_arc, 12, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(s_span_arc, 12, LV_PART_INDICATOR);
+
+    s_dial = lv_arc_create(c);       /* the knob you drag, over it */
+    lv_obj_set_size(s_dial, 170, 170);
+    lv_obj_align(s_dial, LV_ALIGN_TOP_MID, 0, 4);
+    lv_arc_set_range(s_dial, 0, 23);
+    lv_arc_set_bg_angles(s_dial, 0, 360);
+    lv_arc_set_rotation(s_dial, 270);
+    lv_arc_set_value(s_dial, s_hour[s_editing]);
+    lv_obj_set_style_arc_opa(s_dial, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_arc_opa(s_dial, LV_OPA_TRANSP, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(s_dial, lv_color_hex(COLOR_TEXT), LV_PART_KNOB);
+    lv_obj_add_event_cb(s_dial, on_dial, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(s_dial, on_dial, LV_EVENT_RELEASED, NULL);
+
+    s_dial_lbl = label(c, &lv_font_montserrat_16, COLOR_TEXT, "");
+    lv_obj_align_to(s_dial_lbl, s_dial, LV_ALIGN_CENTER, 0, 0);
+
+    for (int i = 0; i < 2; i++) {
+        s_end_btn[i] = lv_button_create(c);
+        lv_obj_set_size(s_end_btn[i], 120, 40);
+        lv_obj_align(s_end_btn[i], LV_ALIGN_TOP_MID, i ? 64 : -64, 186);
+        lv_obj_set_style_radius(s_end_btn[i], 20, 0);
+        lv_obj_set_style_shadow_width(s_end_btn[i], 0, 0);
+        lv_obj_add_event_cb(s_end_btn[i], on_pick_end, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        s_end_lbl[i] = label(s_end_btn[i], &lv_font_montserrat_14, COLOR_TEXT, "");
+        lv_obj_center(s_end_lbl[i]);
+    }
+    show_hours();
 }
 #endif
 
@@ -1477,9 +1534,12 @@ static void build_sleep_page(lv_obj_t *tile)
     note(list, "No sounds of the board's own (touches, shakes). Muse still answers you.");
     int from = muse_settings_sleep_from(), to = muse_settings_sleep_to();
     s_hours_sw = switch_row(list, "Sleep hours", from >= 0, on_hours_sw);
-    s_from_sl = hour_dial(list, "From", from >= 0 ? from : 22, &s_from_val, on_hours_sl);
-    s_to_sl = hour_dial(list, "To", to >= 0 ? to : 7, &s_to_val, on_hours_sl);
-    show_hours();
+    if (from >= 0) {
+        s_hour[0] = from;
+        s_hour[1] = to;
+    }
+    s_editing = 0;
+    build_hours_dial(list);
     char tz[MUSE_TZ_MAX + 1];
     muse_settings_tz(tz);
     char line[160];

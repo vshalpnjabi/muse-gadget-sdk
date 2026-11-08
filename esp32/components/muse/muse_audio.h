@@ -39,6 +39,8 @@ void muse_audio_power(bool on);
 
 void muse_audio_set_volume(int volume);          /* 0..100 */
 void muse_audio_set_mic_gain(int db);            /* 0..MUSE_MIC_GAIN_MAX */
+/* The speaker's gain at volume 100 (Sound > Speaker boost), dB; volume 0 stays -50 dB. */
+void muse_audio_set_speaker_boost(int db);
 
 /* Measures the real capture/playback rates and per-mic levels; logs the result. */
 void muse_audio_selftest(void);
