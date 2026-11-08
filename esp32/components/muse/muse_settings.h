@@ -81,6 +81,9 @@ void muse_settings_set_avatar(int which);
  * captions (CONNECTING, PUSH TO TALK, errors) still show. On by default. */
 bool muse_settings_captions(void);
 void muse_settings_set_captions(bool on);
+/* Settings > Appearance > Theme: an index into muse_theme_at(), shown after a restart. */
+int muse_settings_theme(void);
+void muse_settings_set_theme(int theme);
 
 /* Do not disturb (Settings > Sleep, or asked of Muse): the board makes none
  * of its own sounds (touch, motion, chirps); Muse's answers to you still play. */

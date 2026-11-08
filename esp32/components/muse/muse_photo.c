@@ -45,6 +45,7 @@
 static int s_size = 320;
 /* What's shown: zoom in 1/1024 steps, offsets in half pixels, brightness in 1/16. */
 static int s_zoom = 1024, s_dx2, s_dy2, s_bright = 16;
+static int s_turn;   /* the whole picture turned, 1/1024 of a turn (a dizzy spin) */
 
 void muse_photo_set_size(int px)
 {
@@ -343,6 +344,7 @@ bool muse_photo_render(const muse_pose_t *p)
     /* The board moved: tipped, Muse looks toward the low side and leans;
      * shaken, it's dizzy for a moment, with stars. */
     muse_photo_part_t motion_eyes = MUSE_PHOTO_PATCH_NONE, motion_mouth = MUSE_PHOTO_PATCH_NONE;
+    float turn = 0;   /* of a full turn */
 #if CONFIG_MUSE_IMU
     muse_motion_t m;
     muse_motion(&m);
@@ -353,7 +355,11 @@ bool muse_photo_render(const muse_pose_t *p)
             s_sfx_pending = MUSE_SFX_BOING;
         }
         if (t < s_dizzy_until) {
-            float left = s_dizzy_until - t;
+            float left = s_dizzy_until - t, since = 2.2f - left;
+            if (since < 0.9f) {
+                float k = since / 0.9f;
+                turn = k * k * (3.0f - 2.0f * k);   /* one full spin, eased in and out */
+            }
             dx += 5.0f * sinf(TAU * 2.5f * t) * (left > 1 ? 1 : left);   /* a wobble */
             motion_eyes = MUSE_PHOTO_EYES_CLOSED;
             motion_mouth = MUSE_PHOTO_MOUTH_OO;
@@ -477,9 +483,11 @@ bool muse_photo_render(const muse_pose_t *p)
 
     int z = (int)lroundf(zoom * 1024), x2 = (int)lroundf(dx * 2), y2 = (int)lroundf(dy * 2);
     int b = (int)lroundf(bright * 16);
-    bool changed = z != s_zoom || x2 != s_dx2 || y2 != s_dy2 || b != s_bright || eyes != s_eyes ||
+    int tq = (int)lroundf(turn * 1024) & 1023;
+    bool changed = z != s_zoom || x2 != s_dx2 || y2 != s_dy2 || b != s_bright || tq != s_turn || eyes != s_eyes ||
                    mouth != s_mouth || floating || s_floating;
     s_floating = floating;
+    s_turn = tq;
     s_zoom = z;
     s_dx2 = x2;
     s_dy2 = y2;
@@ -536,6 +544,24 @@ void muse_photo_scale(uint16_t *dst, int stride_px, int x0, int x1, int y0, int 
     const int32_t fx_fp = (int32_t)(FOCUS_X * side * 65536.0f), fy_fp = (int32_t)(FOCUS_Y * side * 65536.0f);
     const int32_t max_fp = (side - 1) << 16;
 
+    if (s_turn) {
+        /* Spinning: each screen pixel samples the picture rotated about the
+         * centre; a full row is two steps of 16.16 per pixel. */
+        float a = s_turn * (6.2831853f / 1024.0f), c = cosf(a), sn = sinf(a);
+        int32_t ux = (int32_t)(c * step_fp), uy = (int32_t)(sn * step_fp);   /* per pixel across */
+        for (int y = y0; y <= y1; y++) {
+            uint16_t *row = dst + (size_t)(y - y0) * stride_px;
+            float ry = y - cy, rx = x0 - cx;
+            int32_t sx = fx_fp + (int32_t)((rx * c + ry * sn) * step_fp);
+            int32_t sy = fy_fp + (int32_t)((ry * c - rx * sn) * step_fp);
+            for (int x = x0; x <= x1; x++, sx += ux, sy -= uy) {
+                row[x - x0] = sx < 0 || sx > max_fp || sy < 0 || sy > max_fp
+                    ? 0 : muse_photo_px[(size_t)(sy >> 16) * side + (sx >> 16)];
+            }
+            if (s_floating) draw_particles(row, y, x0, x1);
+        }
+        return;
+    }
     for (int y = y0; y <= y1; y++) {
         uint16_t *row = dst + (size_t)(y - y0) * stride_px;
         int32_t sy = fy_fp + (int32_t)((y - cy) * step_fp);

@@ -91,6 +91,7 @@ if(CONFIG_MUSE_ENABLED)
     if(CONFIG_MUSE_IMU)
         list(APPEND srcs "muse_imu.c")   # the motion sensor, for the face
     endif()
+    list(APPEND srcs "muse_theme.c")   # the UI's colours
     if(CONFIG_MUSE_CLOCK)
         list(APPEND srcs "muse_clock.c")   # the time, sleep hours, do not disturb
     endif()

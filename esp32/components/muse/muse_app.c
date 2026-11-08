@@ -43,6 +43,8 @@
 #include "muse_clock.h"
 #endif
 
+#include "muse_theme.h"
+
 static const char *TAG = "muse";
 
 /* Applies saved settings to hardware; runs in whichever task changed them. */
@@ -82,6 +84,7 @@ void muse_app_run(const muse_board_t *board)
     ESP_LOGI(TAG, "board: %s", board->name);
     ESP_ERROR_CHECK(board->init());
     ESP_ERROR_CHECK(muse_settings_init());
+    muse_theme_init();   /* the colours, before any UI is built */
 #if CONFIG_MUSE_CLOCK
     muse_clock_start();   /* syncs once Wi-Fi is up */
 #endif

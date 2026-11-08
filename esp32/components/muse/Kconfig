@@ -433,6 +433,15 @@ menu "Muse"
             them. Needs PSRAM. Without it, voice notes go over Home Link's own
             session to its paired VM and replies are shown as text.
 
+    config MUSE_DEFAULT_THEME
+        int "Default theme (0 Muse, 1 Purple, 2 Blue, 3 Green, 4 Orange, 5 Pink, 6 Mono)"
+        range 0 6
+        default 1
+        help
+            The UI's colours until one is picked in Settings > Appearance >
+            Theme. Muse matches Vi in the Muse app (navy, beige, cream);
+            Purple is the original; the rest are solid colours.
+
     config MUSE_CLOCK
         bool "Clock, sleep hours and do not disturb"
         default n

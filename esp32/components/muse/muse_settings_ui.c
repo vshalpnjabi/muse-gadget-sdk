@@ -37,6 +37,8 @@
 #include "muse_keypad.h"
 #include "muse_link.h"
 #include "muse_settings.h"
+#include "muse_theme.h"
+#include "esp_system.h"
 #include "muse_state.h"
 #include "muse_text.h"
 #include "muse_ui.h"
@@ -63,11 +65,12 @@
 #define TINY_BACK_Y 16
 #define MAX_APS 12
 
-#define COLOR_TEXT 0xf2efff
-#define COLOR_DIM 0x8b84a8
-#define COLOR_CARD 0x1a1530
-#define COLOR_CARD_PRESSED 0x2e2552
-#define COLOR_ACCENT 0xa77dff
+/* The theme's (muse_theme.h, Settings > Appearance > Theme). */
+#define COLOR_TEXT (muse_theme()->text)
+#define COLOR_DIM (muse_theme()->dim)
+#define COLOR_CARD (muse_theme()->card)
+#define COLOR_CARD_PRESSED (muse_theme()->card_pressed)
+#define COLOR_ACCENT (muse_theme()->accent)
 #define COLOR_OK 0x6ff0bf
 #define COLOR_WARN 0xffb45c
 #define COLOR_DANGER 0xff5c5c
@@ -453,7 +456,7 @@ static lv_obj_t *slider(lv_obj_t *list, const char *text, int lo, int hi, int va
     lv_obj_align(s, LV_ALIGN_TOP_MID, 0, wide_layout() ? 50 : s_tiny ? 30 : 40);
     lv_slider_set_range(s, lo, hi);
     lv_slider_set_value(s, value, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(s, lv_color_hex(0x2a2345), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s, lv_color_hex(muse_theme()->slider_bg), LV_PART_MAIN);
     lv_obj_set_style_bg_color(s, lv_color_hex(COLOR_ACCENT), LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(s, lv_color_hex(COLOR_TEXT), LV_PART_KNOB);
     lv_obj_set_style_pad_all(s, 6, LV_PART_KNOB);
@@ -1328,7 +1331,7 @@ static void build_sound_page(lv_obj_t *tile)
     lv_obj_set_size(s_mic_bar, lv_pct(94), 10);
     lv_obj_align(s_mic_bar, LV_ALIGN_TOP_MID, 0, narrow_panel() ? 48 : 26);
     lv_bar_set_range(s_mic_bar, 0, 60);   /* -70..-10 dBFS */
-    lv_obj_set_style_bg_color(s_mic_bar, lv_color_hex(0x2a2345), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_mic_bar, lv_color_hex(muse_theme()->slider_bg), LV_PART_MAIN);
     lv_obj_set_style_anim_duration(s_mic_bar, 80, 0);
     if (muse_board->epaper) {
         lv_obj_add_flag(meter, LV_OBJ_FLAG_HIDDEN);
@@ -1484,6 +1487,8 @@ static void tick_sleep(void)
 
 static lv_obj_t *s_home_appearance;
 static lv_obj_t *s_captions_sw;
+#define THEMES_MAX 8
+static lv_obj_t *s_theme_checks[THEMES_MAX];
 #if MUSE_HAS_PHOTO_AVATAR
 static const char *const AVATAR_NAMES[MUSE_AVATAR_COUNT] = { "Pixel art", "Muse app picture" };
 static lv_obj_t *s_avatar_checks[MUSE_AVATAR_COUNT];
@@ -1498,6 +1503,21 @@ static void tick_appearance(void)
     }
 #endif
     lv_obj_set_state(s_captions_sw, LV_STATE_CHECKED, muse_settings_captions());
+    for (int i = 0; i < muse_theme_count() && i < THEMES_MAX; i++) {
+        set_text(s_theme_checks[i], i == muse_settings_theme() ? LV_SYMBOL_OK : "");
+    }
+}
+
+static void on_theme_choice(lv_event_t *e)
+{
+    muse_settings_set_theme((int)(intptr_t)lv_event_get_user_data(e));
+    tick_appearance();
+}
+
+static void on_restart(lv_event_t *e)
+{
+    (void)e;
+    esp_restart();   /* the face is built once: a new theme shows from the start */
 }
 
 #if MUSE_HAS_PHOTO_AVATAR
@@ -1531,6 +1551,14 @@ static void build_appearance_page(lv_obj_t *tile)
     note(list, "Pixel art is drawn by your Muse; the picture is the one in the Muse app, "
                "brought to life by the board.");
 #endif
+    note(list, "Theme:");
+    for (int i = 0; i < muse_theme_count() && i < THEMES_MAX; i++) {
+        lv_obj_t *r = row(list, NULL, muse_theme_at(i)->name, &s_theme_checks[i], on_theme_choice, (void *)(intptr_t)i);
+        lv_obj_set_style_text_color(s_theme_checks[i], lv_color_hex(muse_theme_at(i)->accent), 0);
+        (void)r;
+    }
+    note(list, "Muse matches Vi in the Muse app. A new theme shows after a restart.");
+    button(list, LV_SYMBOL_REFRESH "  Restart now", COLOR_ACCENT, on_restart, NULL);
     s_captions_sw = switch_row(list, "Captions", muse_settings_captions(), on_captions_sw);
     note(list, "What you said and Muse's replies as text. Off, Muse keeps its size on the face; "
                "status messages still show.");

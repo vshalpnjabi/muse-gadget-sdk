@@ -57,13 +57,13 @@ int main(int argc,char **argv)
     assert(argc==2);
     mode=MUSE_MODE_SPEAKING; view=MUSE_VOICE_VIEW_SPEAKING; source_level=0.9f;
     frame_tick(NULL);
-    assert(rendered.mode==MUSE_MODE_SPEAKING && fabsf(rendered.level-0.54f)<0.0001f);
+    assert(rendered.mode==MUSE_MODE_SPEAKING && fabsf(rendered.level-0.675f)<0.0001f);   /* 0.9 x 0.75, the attack */
     mode=MUSE_MODE_LISTENING; view=MUSE_VOICE_VIEW_LISTENING; source_level=0.1f;
     frame_tick(NULL);
-    assert(rendered.mode==MUSE_MODE_LISTENING && fabsf(rendered.level-0.06f)<0.0001f);
+    assert(rendered.mode==MUSE_MODE_LISTENING && fabsf(rendered.level-0.075f)<0.0001f);
     /* Mode was read just before the voice task switched to speaker output. */
     view=MUSE_VOICE_VIEW_SPEAKING; source_level=0.9f;
     frame_tick(NULL);
-    assert(fabsf(rendered.level-0.048f)<0.0001f); /* only the previous mic level decays */
+    assert(fabsf(rendered.level-0.045f)<0.0001f); /* only the previous mic level decays (x 0.6) */
     return 0;
 }

@@ -46,6 +46,7 @@
 #include "muse_photo.h"
 #endif
 #include "muse_settings.h"
+#include "muse_theme.h"
 #include "muse_settings_ui.h"
 #include "muse_state.h"
 #include "muse_text.h"
@@ -90,13 +91,14 @@ static const char *TAG = "muse_ui";
 #define SPEAKER_GROW_PX 8       /* how much the speaker button swells while held */
 #define SPEAKER_HOLD_MS 400     /* LVGL's long press */
 
-#define COLOR_DIM 0x8b84a8
-#define COLOR_CAPTION 0xd8d2ff
-#define COLOR_RING_BG 0x140f22
-#define COLOR_METER_OFF 0x1d1733
-#define COLOR_ACCENT 0xa77dff
-#define COLOR_DOT_OFF 0x3a3358
-#define COLOR_LIT 0xf2efff
+/* The theme's (muse_theme.h, Settings > Appearance > Theme). */
+#define COLOR_DIM (muse_theme()->dim)
+#define COLOR_CAPTION (muse_theme()->caption)
+#define COLOR_RING_BG (muse_theme()->ring_bg)
+#define COLOR_METER_OFF (muse_theme()->meter_off)
+#define COLOR_ACCENT (muse_theme()->accent)
+#define COLOR_DOT_OFF (muse_theme()->dot_off)
+#define COLOR_LIT (muse_theme()->lit)
 #define SETTINGS_TICK_S 0.25f
 
 /* Text on 128 px screens, as in the button menu (muse_menu.c). */

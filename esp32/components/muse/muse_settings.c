@@ -67,8 +67,16 @@ static atomic_int s_avatar = MUSE_AVATAR_PHOTO;
 #else
 static atomic_int s_avatar = MUSE_AVATAR_PIXEL;
 #endif
+/* Kconfig always sets these; the fallbacks are for host harnesses with a partial sdkconfig.h. */
+#ifndef CONFIG_MUSE_DEFAULT_THEME
+#define CONFIG_MUSE_DEFAULT_THEME 1
+#endif
+#ifndef CONFIG_MUSE_TIMEZONE
+#define CONFIG_MUSE_TIMEZONE "UTC0"
+#endif
 static atomic_bool s_captions = true;
 static atomic_bool s_dnd;
+static atomic_int s_theme = CONFIG_MUSE_DEFAULT_THEME;
 static atomic_int s_sleep_from = -1, s_sleep_to = -1;
 static char s_tz[MUSE_TZ_MAX + 1] = CONFIG_MUSE_TIMEZONE;   /* under s_lock */
 static nvs_handle_t s_nvs;
@@ -143,6 +151,9 @@ esp_err_t muse_settings_init(void)
     if (nvs_get_u8(s_nvs, "captions", &b) == ESP_OK) {
         atomic_store(&s_captions, b != 0);
     }
+    if (nvs_get_u8(s_nvs, "theme", &b) == ESP_OK) {
+        atomic_store(&s_theme, b);
+    }
     if (nvs_get_u8(s_nvs, "dnd", &b) == ESP_OK) {
         atomic_store(&s_dnd, b != 0);
     }
@@ -209,6 +220,15 @@ void muse_settings_set_voice_notes(bool on)
 }
 
 bool muse_settings_captions(void) { return atomic_load(&s_captions); }
+
+int muse_settings_theme(void) { return atomic_load(&s_theme); }
+
+void muse_settings_set_theme(int theme)
+{
+    theme = clampi(theme, 0, 254);
+    atomic_store(&s_theme, theme);
+    save_u8("theme", (uint8_t)theme);
+}
 
 bool muse_settings_dnd(void) { return atomic_load(&s_dnd); }
 
