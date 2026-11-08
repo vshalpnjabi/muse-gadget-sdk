@@ -175,6 +175,20 @@ esp_err_t muse_audio_init(int volume, int mic_gain_db)
             codec_power(false);
             return err;
         }
+#if CONFIG_MUSE_SPEAKER_MAX_DB > 0
+        /* Louder than the library's 0 dB at full volume; the codec keeps the
+         * curve across closes and reopens. */
+        esp_codec_dev_vol_map_t map[] = {
+            { .vol = 0, .db_value = -50.0f },
+            { .vol = 100, .db_value = (float)CONFIG_MUSE_SPEAKER_MAX_DB },
+        };
+        esp_codec_dev_vol_curve_t curve = { .vol_map = map, .count = 2 };
+        if (esp_codec_dev_set_vol_curve(s_spk, &curve) == ESP_CODEC_DEV_OK) {
+            ESP_LOGI(TAG, "speaker: +%d dB at full volume", CONFIG_MUSE_SPEAKER_MAX_DB);
+        } else {
+            ESP_LOGW(TAG, "speaker: couldn't set the volume curve");
+        }
+#endif
     }
     muse_audio_set_volume(volume);
     muse_audio_set_mic_gain(mic_gain_db);

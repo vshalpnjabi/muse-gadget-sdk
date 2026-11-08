@@ -433,6 +433,18 @@ menu "Muse"
             them. Needs PSRAM. Without it, voice notes go over Home Link's own
             session to its paired VM and replies are shown as text.
 
+    config MUSE_SPEAKER_MAX_DB
+        int "Speaker gain at full volume, in dB"
+        range 0 24
+        default 0
+        help
+            The codec's digital gain at volume 100; volume 0 stays at -50 dB
+            and the steps between scale to match. 0 keeps the codec
+            library's own range. Above 0 makes everything louder at the
+            same setting, and the loudest parts of speech clip: try 6 to
+            12 on a quiet speaker. Applies to boards whose speaker is a
+            codec (ES8311 and the like), not to plain I2S amplifiers.
+
     config MUSE_REALTIME_VOICE
         bool "Live voice calls with Muse (experimental)"
         depends on (MUSE_HATCH || HOMEHUB_VOICE) && SPIRAM
