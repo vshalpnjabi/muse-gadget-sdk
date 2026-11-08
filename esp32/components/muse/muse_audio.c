@@ -15,6 +15,9 @@
  */
 
 #include "muse_audio.h"
+#if CONFIG_MUSE_VOICE_GUARD
+#include "muse_vg.h"
+#endif
 
 #include <math.h>
 #include <stdatomic.h>
@@ -458,6 +461,9 @@ esp_err_t muse_audio_read(int16_t *mono, size_t frames)
         if (atomic_load(&s_mic_muted)) {
             memset(mono, 0, n * sizeof(int16_t));   /* read anyway, so the timing stays the same */
         }
+#if CONFIG_MUSE_VOICE_GUARD
+        muse_vg_tee(mono, n);   /* a copy, as handed on; never waits */
+#endif
         mono += n;
         frames -= n;
     }

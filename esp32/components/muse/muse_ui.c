@@ -15,6 +15,9 @@
  */
 
 #include "muse_ui.h"
+#if CONFIG_MUSE_VOICE_GUARD
+#include "muse_vg.h"
+#endif
 
 #include <math.h>
 #include <stdio.h>
@@ -195,6 +198,9 @@ static lv_obj_t *s_aux_icon;
 static volatile int s_rotate_override = -1;   /* muse_ui_rotate(), -1: as held */
 #if CONFIG_MUSE_CLOCK
 static lv_obj_t *s_clock_lbl, *s_dnd_lbl;
+#if CONFIG_MUSE_VOICE_GUARD
+static lv_obj_t *s_vg_dot, *s_vg_lbl;   /* the voice guard's latest verdict */
+#endif
 #endif
 #if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
 static lv_obj_t *s_talk_hint_lbl, *s_end_hint_lbl;
@@ -1395,6 +1401,16 @@ static void build_screen(void)
     s_clock_lbl = make_label(status, &lv_font_montserrat_14, COLOR_CAPTION);   /* 9:47, once the time's set */
     s_dnd_lbl = make_label(status, &lv_font_montserrat_14, COLOR_DIM);        /* DND while quiet */
 #endif
+#if CONFIG_MUSE_VOICE_GUARD
+    s_vg_dot = lv_obj_create(status);
+    lv_obj_remove_style_all(s_vg_dot);
+    lv_obj_set_size(s_vg_dot, 8, 8);
+    lv_obj_set_style_radius(s_vg_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(s_vg_dot, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(s_vg_dot, lv_color_hex(0x808080), 0);
+    lv_obj_add_flag(s_vg_dot, LV_OBJ_FLAG_HIDDEN);
+    s_vg_lbl = make_label(status, &lv_font_montserrat_14, COLOR_DIM);
+#endif
     s_wifi_icon = make_label(status, &lv_font_montserrat_14, COLOR_DIM);
     s_ble_icon = make_label(status, &lv_font_montserrat_14, COLOR_DIM);
     s_power_lbl = make_label(status, &lv_font_unscii_8, COLOR_DIM);
@@ -2008,6 +2024,22 @@ static void update_power(float now)
     const char *dnd = muse_clock_quiet() ? "DND" : "";
     if (strcmp(dnd, lv_label_get_text(s_dnd_lbl))) {
         lv_label_set_text(s_dnd_lbl, dnd);
+    }
+#endif
+#if CONFIG_MUSE_VOICE_GUARD
+    if (muse_vg_running()) {
+        float score;
+        bool accept;
+        bool have = muse_vg_latest(&score, &accept);
+        char vg[8] = "";
+        if (have) {
+            snprintf(vg, sizeof(vg), "%.2f", score);
+        }
+        lv_obj_remove_flag(s_vg_dot, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_bg_color(s_vg_dot, lv_color_hex(!have ? 0x808080 : accept ? 0x34C759 : 0xFF3B30), 0);
+        if (strcmp(vg, lv_label_get_text(s_vg_lbl))) {
+            lv_label_set_text(s_vg_lbl, vg);
+        }
     }
 #endif
     muse_power_t p = muse_state_power();

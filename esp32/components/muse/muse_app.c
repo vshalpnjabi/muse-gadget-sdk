@@ -21,6 +21,9 @@
 #include "freertos/task.h"
 
 #include "muse_audio.h"
+#if CONFIG_MUSE_VOICE_GUARD
+#include "muse_vg.h"
+#endif
 #include "muse_battery.h"
 #include "muse_board.h"
 #include "muse_ble.h"
@@ -90,6 +93,9 @@ void muse_app_run(const muse_board_t *board)
     muse_theme_init();   /* the colours, before any UI is built */
 #if CONFIG_MUSE_CLOCK
     muse_clock_start();   /* syncs once Wi-Fi is up */
+#endif
+#if CONFIG_MUSE_VOICE_GUARD
+    muse_vg_start();   /* shadow mode: only watches the mic audio */
 #endif
     muse_settings_set_listener(on_setting);
     muse_state_init();

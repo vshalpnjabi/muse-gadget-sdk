@@ -468,6 +468,43 @@ menu "Muse"
             photo face looks toward the low side and leans; shaken, it gets
             dizzy. Costs a small task with its stack in PSRAM.
 
+    config MUSE_VOICE_GUARD
+        bool "Voice guard (shadow mode): check who's speaking"
+        depends on MUSE_BOARD_WAVESHARE_S3_175C
+        default y
+        help
+            Keeps a copy of the last ~4 s of the mic audio sent to Muse and,
+            during a call or voice note, sends its last 3 s every 1.5 s to a
+            speaker-verification service, logging each verdict and showing it
+            as a small dot (green: the speaker, red: not, grey: no verdict).
+            Shadow mode: the verdict never changes what Muse hears. Does
+            nothing until a token is set.
+
+    config MUSE_VG_HOME_BASE
+        string "Voice guard: home base URL (tried first)"
+        depends on MUSE_VOICE_GUARD
+        default "http://192.168.1.214:8792"
+
+    config MUSE_VG_AWAY_BASE
+        string "Voice guard: HTTPS base URL (if home fails)"
+        depends on MUSE_VOICE_GUARD
+        default "https://vpmacmini.tail94daa8.ts.net/vg"
+        help
+            Validated against the firmware's CA bundle.
+
+    config MUSE_VG_SPEAKER
+        string "Voice guard: speaker name"
+        depends on MUSE_VOICE_GUARD
+        default "vishal"
+
+    config MUSE_VG_TOKEN
+        string "Voice guard: token (X-VG-Token)"
+        depends on MUSE_VOICE_GUARD
+        default ""
+        help
+            Set it here, in the build's own sdkconfig, never in a committed
+            file. Empty: the voice guard stays off.
+
     config MUSE_UI_TOUCH_SOUNDS
         bool "Little sounds when you touch Muse"
         default n
