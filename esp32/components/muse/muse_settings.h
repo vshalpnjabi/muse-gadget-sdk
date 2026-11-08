@@ -97,6 +97,9 @@ bool muse_settings_clock24(void);
 void muse_settings_set_clock24(bool on);
 /* Settings > Sound, the voice guard: when a call's voice isn't recognized, show a notice
  * (on), play a tone (on), and/or have Muse say so (off: needs Muse's side). */
+/* Settings > Sound > Voice recognition: the whole voice guard on or off (off: no dot, nothing sent). */
+bool muse_settings_vg_on(void);
+void muse_settings_set_vg_on(bool on);
 bool muse_settings_vg_notice(void);
 bool muse_settings_vg_tone(void);
 bool muse_settings_vg_explain(void);

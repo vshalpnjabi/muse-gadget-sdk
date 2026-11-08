@@ -485,11 +485,11 @@ menu "Muse"
         depends on MUSE_VOICE_GUARD
         default y
         help
-            A call starts unverified: the mic audio is held on the board, not
-            sent. An accepted window verifies it, and its audio goes up from
-            that window on; rejects in a row (about 1.5 s of another voice)
-            lose it until the next accept. Off: shadow mode, the dot only.
-            Needs the verification server: without it, Muse hears nothing.
+            A call flows as usual until the voice guard rejects about 1.5 s of
+            speech in a row (the dot turns red): from then the mic audio is
+            held on the board, not sent, until a window is accepted again, and
+            its audio goes up from that window on. Before any verdict (grey)
+            nothing is held back. Off: shadow mode, the dot only.
 
     config MUSE_VG_HOME_BASE
         string "Voice guard: home base URL (tried first)"

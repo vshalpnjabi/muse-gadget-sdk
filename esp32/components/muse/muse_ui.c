@@ -1990,7 +1990,9 @@ static void set_meter_visible(bool visible)
 /* The voice guard's dot: every tick, so its blink on each verdict shows. */
 static void update_vg(void)
 {
-    if (muse_vg_running()) {
+    if (muse_vg_running() && !muse_settings_vg_on()) {
+        lv_obj_add_flag(s_vg_dot, LV_OBJ_FLAG_HIDDEN);   /* Voice recognition off */
+    } else if (muse_vg_running()) {
         float score;
         bool accept;
         bool have = muse_vg_latest(&score, &accept);

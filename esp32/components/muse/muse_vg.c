@@ -159,7 +159,9 @@ muse_vg_state_t muse_vg_state(void)
 bool muse_vg_gating(void)
 {
 #if CONFIG_MUSE_VG_ENFORCE
-    return atomic_load(&s_running) && atomic_load(&s_state) != MUSE_VG_VERIFIED;
+    /* Only a voice found not to be the owner's (red) is held back: before
+     * any verdict (grey) the call flows, so Muse greets and answers at once. */
+    return atomic_load(&s_running) && muse_settings_vg_on() && atomic_load(&s_state) == MUSE_VG_LOST;
 #else
     return false;
 #endif
@@ -655,6 +657,9 @@ static bool cal_tick(int16_t *win, int64_t now)
 static bool active(void)
 {
     /* A call, or a voice note being recorded: what goes to Muse. */
+    if (!muse_settings_vg_on()) {
+        return false;   /* Voice recognition off: nothing goes to the server */
+    }
     return muse_voice_in_call() || muse_state_mode(NULL) == MUSE_MODE_LISTENING;
 }
 

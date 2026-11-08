@@ -1134,7 +1134,7 @@ static void run_call(bool ptt, size_t waking_chunks)
          * them before UP, so release drains them like other captured input. */
         size_t pre_chunks = waking_chunks;
 #if CONFIG_MUSE_VG_ENFORCE
-        if (muse_vg_running()) pre_chunks = 0;   /* unverified: none goes up (the guard's ring has it for its window) */
+        if (muse_vg_gating()) pre_chunks = 0;   /* a voice found not the owner's: none goes up */
 #endif
         for (size_t i = 0; i < pre_chunks && !atomic_load(&s_shutdown) &&
              c.input_epoch == muse_input_call_epoch(); i++) {
@@ -1224,7 +1224,7 @@ static void run_call(bool ptt, size_t waking_chunks)
         else mic = mic && c.live && muse_vc_gate_mic_open(&c.gate, now);
         bool held_back = false;   /* wanted, but held: the voice isn't verified */
 #if CONFIG_MUSE_VG_ENFORCE
-        if (muse_vg_running() && captured) mic = vg_uplink(mic, &held_back);
+        if (muse_vg_running() && muse_settings_vg_on() && captured) mic = vg_uplink(mic, &held_back);
         else
 #endif
         if (mic) mic = muse_voice_call_audio(s_chunk, MUSE_AUDIO_CHUNK);

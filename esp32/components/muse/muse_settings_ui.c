@@ -1449,6 +1449,11 @@ static void on_cal_button(lv_event_t *e)
     cal_close();
 }
 
+static void on_vg_on_sw(lv_event_t *e)
+{
+    muse_settings_set_vg_on(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
+}
+
 static void on_vg_notice_sw(lv_event_t *e)
 {
     muse_settings_set_vg_notice(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
@@ -1577,6 +1582,8 @@ static void build_sound_page(lv_obj_t *tile)
     s_gain_sl = slider(list, "Mic gain", 0, MUSE_MIC_GAIN_MAX / 3, muse_settings_mic_gain() / 3, &s_gain_val, on_gain);
 #if CONFIG_MUSE_VOICE_GUARD
     if (muse_vg_running()) {
+        switch_row(list, "Voice recognition", muse_settings_vg_on(), on_vg_on_sw);
+        note(list, "Checks that the voice in a call is yours; another voice is held back from Muse.");
         row(list, NULL, "Calibrate voice", NULL, on_cal_open, NULL);
         note(list, "Read a short script aloud so the board recognizes your voice.");
         note(list, "When a voice isn't recognized in a call:");
