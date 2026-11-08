@@ -1,0 +1,41 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#pragma once
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "muse_pixel.h"
+
+/*
+ * The Muse app's picture of your Muse as the face: a round portrait the board
+ * animates itself (breathing, leaning in to listen, a pulse with Muse's voice,
+ * a sway while it thinks). Built in when components/muse/avatar/muse_photo_img.c
+ * exists (tools/muse/photo_avatar.py makes it); MUSE_HAS_PHOTO_AVATAR is then 1.
+ * Same contract as muse_pixel_render / _set_size / _scale.
+ */
+
+/* The picture, square, RGB565 as muse_pixel_scale writes it (muse_photo_img.c). */
+extern const uint16_t muse_photo_px[];
+extern const int muse_photo_side;
+
+/* Moves the picture for this frame. True if what it shows changed. */
+bool muse_photo_render(const muse_pose_t *pose);
+
+void muse_photo_set_size(int px);
+
+void muse_photo_scale(uint16_t *dst, int stride_px, int x0, int x1, int y0, int y1);

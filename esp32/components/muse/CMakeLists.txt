@@ -79,6 +79,15 @@ if(CONFIG_MUSE_ENABLED)
     else()
         list(APPEND srcs "../../avatar/muse_pixel.c")
     endif()
+    # The Muse app's picture of your Muse, made by tools/muse/photo_avatar.py,
+    # beside the drawn avatar (Settings > Appearance picks one) when
+    # avatar/muse_photo_img.c exists here. Like muse_pixel.c, it's yours: gitignored.
+    file(GLOB photo_avatar CONFIGURE_DEPENDS "${COMPONENT_DIR}/avatar/muse_photo_img.c")
+    if(photo_avatar)
+        message(STATUS "Photo avatar: components/muse/avatar/muse_photo_img.c")
+        list(APPEND srcs "muse_photo.c" "avatar/muse_photo_img.c")
+        set(muse_photo_avatar 1)
+    endif()
     if(CONFIG_MUSE_BOARD_WAVESHARE_S3_175C OR CONFIG_MUSE_BOARD_WAVESHARE_S3_175)
         # One driver: the 1.75 differs only in pins (its BSP's) and its PWR key.
         list(APPEND srcs "boards/board_waveshare_s3_175c.c" "boards/muse_lcd_bands.c")
@@ -215,6 +224,11 @@ idf_component_register(
     REQUIRES esp_driver_gpio esp_driver_i2c
     PRIV_REQUIRES ${muse_priv_requires}
 )
+
+if(muse_photo_avatar)
+    # Settings > Appearance offers the picture, and the face can show it.
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE "MUSE_HAS_PHOTO_AVATAR=1")
+endif()
 
 if(CONFIG_MUSE_UI_FREEINK)
     # FreeInk's board profile, for the panel and its pins. PUBLIC: FreeInk's

@@ -433,6 +433,21 @@ menu "Muse"
             them. Needs PSRAM. Without it, voice notes go over Home Link's own
             session to its paired VM and replies are shown as text.
 
+    config MUSE_UI_HIDE_READY
+        bool "Leave the status line blank when Muse is ready"
+        default n
+        help
+            The face's status line shows nothing in place of READY. Wi-Fi
+            trouble (NO WI-FI, RECONNECTING, ...) and the other modes still
+            show there.
+
+    config MUSE_UI_BATTERY_PERCENT_ONLY
+        bool "Show the battery as a bare percentage"
+        default n
+        help
+            84% (+84% while charging) in place of BATTERY 84% and
+            CHARGING 84%, as small screens already show it.
+
     config MUSE_SPEAKER_MAX_DB
         int "Speaker gain at full volume, in dB"
         range 0 24

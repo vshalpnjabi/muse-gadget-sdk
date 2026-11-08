@@ -61,6 +61,12 @@ static struct {
 static SemaphoreHandle_t s_lock;
 /* StopWatch samples this at the next press, never during an active call. */
 static atomic_bool s_voice_notes;
+/* The UI reads it each frame. The photo is the default where it's built in. */
+#if MUSE_HAS_PHOTO_AVATAR
+static atomic_int s_avatar = MUSE_AVATAR_PHOTO;
+#else
+static atomic_int s_avatar = MUSE_AVATAR_PIXEL;
+#endif
 static nvs_handle_t s_nvs;
 static muse_setting_cb_t s_listener;
 
@@ -130,6 +136,11 @@ esp_err_t muse_settings_init(void)
         atomic_store(&s_voice_notes, b != 0);
     }
 #endif
+#if MUSE_HAS_PHOTO_AVATAR
+    if (nvs_get_u8(s_nvs, "avatar", &b) == ESP_OK && b < MUSE_AVATAR_COUNT) {
+        atomic_store(&s_avatar, b);
+    }
+#endif
     load_u8("bright", &s.brightness);
     nvs_get_u16(s_nvs, "sleep_s", &s.sleep_s);
     load_u8("text_size", &s.text_size);
@@ -175,6 +186,19 @@ void muse_settings_set_voice_notes(bool on)
     atomic_store(&s_voice_notes, on);
     save_u8("voice_notes", on);
     notify(MUSE_SETTING_VOICE_NOTES);
+}
+
+int muse_settings_avatar(void) { return atomic_load(&s_avatar); }
+
+void muse_settings_set_avatar(int which)
+{
+#if !MUSE_HAS_PHOTO_AVATAR
+    which = MUSE_AVATAR_PIXEL;   /* nothing else is built in */
+#endif
+    which = clampi(which, 0, MUSE_AVATAR_COUNT - 1);
+    atomic_store(&s_avatar, which);
+    save_u8("avatar", (uint8_t)which);
+    notify(MUSE_SETTING_AVATAR);
 }
 
 /* Home Link owns the saved networks (this is the first); the local copy is only a fallback. */

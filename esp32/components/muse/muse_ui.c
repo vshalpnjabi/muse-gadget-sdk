@@ -41,6 +41,9 @@
 #include "muse_mem.h"
 #include "muse_menu.h"
 #include "muse_pixel.h"
+#if MUSE_HAS_PHOTO_AVATAR
+#include "muse_photo.h"
+#endif
 #include "muse_settings.h"
 #include "muse_settings_ui.h"
 #include "muse_state.h"
@@ -194,6 +197,11 @@ static float s_level;
 static int s_shown_state = -1;
 static const char *s_shown_name;
 static const char *s_idle_name = "READY";   /* idle's label: set by the Wi-Fi state */
+#if CONFIG_MUSE_UI_BATTERY_PERCENT_ONLY
+#define BATTERY_PERCENT_ONLY 1
+#else
+#define BATTERY_PERCENT_ONLY 0
+#endif
 static int s_shown_lit = -1;
 static uint32_t s_shown_accent;
 static uint32_t s_shown_status_accent;   /* the label and ring: WORKING recolours within THINKING */
@@ -258,6 +266,32 @@ static const char *const MODE_NAMES[MUSE_MODE_COUNT] = {
 #define DIRTY_RECTS_MAX 8       /* with the meter and labels, well inside LVGL's 32 areas */
 #define DIRTY_MERGE_PX 2048     /* pixels that cost about one walk of the widget tree */
 
+/* The avatar the face draws: the drawn one (muse_pixel) or, where it's built
+ * in and picked in Settings > Appearance, the Muse app's picture (muse_photo).
+ * Latched once a frame, so no frame mixes the two. */
+#if MUSE_HAS_PHOTO_AVATAR
+static bool s_photo;
+#endif
+
+static void avatar_scale(uint16_t *dst, int stride_px, int x0, int x1, int y0, int y1)
+{
+#if MUSE_HAS_PHOTO_AVATAR
+    if (s_photo) {
+        muse_photo_scale(dst, stride_px, x0, x1, y0, y1);
+        return;
+    }
+#endif
+    muse_pixel_scale(dst, stride_px, x0, x1, y0, y1);
+}
+
+static void avatar_set_size(int px)
+{
+    muse_pixel_set_size(px);
+#if MUSE_HAS_PHOTO_AVATAR
+    muse_photo_set_size(px);
+#endif
+}
+
 static lv_image_dsc_t s_muse_src;
 static lv_draw_buf_t *s_strips[STRIPS];
 static bool s_strip_busy[STRIPS];
@@ -303,7 +337,7 @@ static lv_result_t muse_dec_get_area(lv_image_decoder_t *dec, lv_image_decoder_d
     if (!buf) {
         return LV_RESULT_INVALID;
     }
-    muse_pixel_scale((uint16_t *)buf->data, buf->header.stride / sizeof(uint16_t), full->x1, full->x2, y1, y2);
+    avatar_scale((uint16_t *)buf->data, buf->header.stride / sizeof(uint16_t), full->x1, full->x2, y1, y2);
     area->x1 = full->x1;
     area->x2 = full->x2;
     area->y1 = y1;
@@ -330,7 +364,7 @@ static void muse_image_init(void)
     s_muse_src.header.h = s_canvas_px;
     s_muse_src.header.stride = s_canvas_px * sizeof(uint16_t);
     s_muse_src.data = (const uint8_t *)&s_muse_src;   /* LVGL skips sources without data */
-    muse_pixel_set_size(s_canvas_px);
+    avatar_set_size(s_canvas_px);
 
     for (int i = 0; i < STRIPS; i++) {
         s_strips[i] = lv_draw_buf_create(s_canvas_px, STRIP_ROWS, LV_COLOR_FORMAT_RGB565, LV_STRIDE_AUTO);
@@ -760,7 +794,7 @@ static void set_canvas_px(int px)
     s_muse_src.header.w = px;
     s_muse_src.header.h = px;
     s_muse_src.header.stride = px * sizeof(uint16_t);
-    muse_pixel_set_size(px);
+    avatar_set_size(px);
     lv_image_set_src(s_canvas, &s_muse_src);   /* picks up the new size */
 }
 
@@ -1803,7 +1837,7 @@ static void update_power(float now)
     char buf[32];
     if (p.battery_pct < 0) {
         strlcpy(buf, p.usb ? (s_small ? "USB" : muse_lang_status("USB POWER")) : "", sizeof(buf));
-    } else if (s_small) {
+    } else if (s_small || BATTERY_PERCENT_ONLY) {
         snprintf(buf, sizeof(buf), "%s%d%%", p.charging ? "+" : "", p.battery_pct);
     } else if (p.charging) {
         snprintf(buf, sizeof(buf), muse_lang_status("CHARGING %d%%"), p.battery_pct);
@@ -1883,6 +1917,9 @@ static void update_status(muse_mode_t mode, float now)
 
     if (name != s_shown_name) {
         const char *shown = muse_lang_status(name);
+#if CONFIG_MUSE_UI_HIDE_READY
+        if (name == MODE_NAMES[MUSE_MODE_IDLE]) shown = "";   /* nothing to say when all is well */
+#endif
         lv_obj_set_style_text_font(s_state_lbl, muse_lang_label_font(shown, s_small ? &lv_font_unscii_8 : &lv_font_unscii_16), 0);
         lv_label_set_text(s_state_lbl, shown);
         s_shown_name = name;
@@ -2157,8 +2194,21 @@ static void frame_tick(lv_timer_t *timer)
         .working = muse_voice_call_view() == MUSE_VOICE_VIEW_WORKING ? 1.0f : 0,
     };
     if (!muse_board->epaper || mode != s_last_epaper_pose) {
-        muse_pixel_render(&pose);
-        invalidate_muse();
+#if MUSE_HAS_PHOTO_AVATAR
+        bool photo = muse_settings_avatar() == MUSE_AVATAR_PHOTO;
+        if (photo != s_photo) {
+            s_photo = photo;
+            s_cells_valid = false;   /* the cell cache is the drawn avatar's */
+            lv_obj_invalidate(s_canvas);
+        }
+        if (s_photo) {
+            if (muse_photo_render(&pose)) lv_obj_invalidate(s_canvas);   /* only when it moved */
+        } else
+#endif
+        {
+            muse_pixel_render(&pose);
+            invalidate_muse();
+        }
         s_last_epaper_pose = mode;
     }
 

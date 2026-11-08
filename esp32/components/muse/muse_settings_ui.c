@@ -79,7 +79,7 @@ static int s_text_scale = 466;
 static bool s_tiny;   /* round and under 300 px: see TINY_LIST_W */
 static lv_obj_t *s_tile;
 static lv_obj_t *s_current;
-static lv_obj_t *s_home, *s_wifi, *s_hatch, *s_ble, *s_sound, *s_sleep, *s_battery, *s_power, *s_text;
+static lv_obj_t *s_home, *s_wifi, *s_hatch, *s_ble, *s_sound, *s_sleep, *s_battery, *s_power, *s_text, *s_appearance;
 
 /*
  * Only home is kept. A sub-page is built when it opens and deleted on the way
@@ -507,7 +507,7 @@ static lv_obj_t *info_row(lv_obj_t *list, const char *text)
 
 static void drop(lv_obj_t *p)
 {
-    lv_obj_t **const pages[] = { &s_wifi, &s_hatch, &s_ble, &s_sound, &s_sleep, &s_battery, &s_power, &s_text };
+    lv_obj_t **const pages[] = { &s_wifi, &s_hatch, &s_ble, &s_sound, &s_sleep, &s_battery, &s_power, &s_text, &s_appearance };
     for (size_t i = 0; i < sizeof(pages) / sizeof(pages[0]); i++) {
         if (*pages[i] == p) {
             *pages[i] = NULL;
@@ -1421,6 +1421,41 @@ static void tick_sleep(void)
     s_sleep_shown = cur;
 }
 
+/* ---------- Appearance ---------- */
+
+#if MUSE_HAS_PHOTO_AVATAR
+static const char *const AVATAR_NAMES[MUSE_AVATAR_COUNT] = { "Pixel art", "Muse app picture" };
+static lv_obj_t *s_home_appearance;
+static lv_obj_t *s_avatar_checks[MUSE_AVATAR_COUNT];
+
+static void tick_appearance(void)
+{
+    int cur = muse_settings_avatar();
+    for (int i = 0; i < MUSE_AVATAR_COUNT; i++) {
+        set_text(s_avatar_checks[i], i == cur ? LV_SYMBOL_OK : "");
+    }
+}
+
+static void on_avatar_choice(lv_event_t *e)
+{
+    muse_settings_set_avatar((int)(intptr_t)lv_event_get_user_data(e));
+    tick_appearance();
+}
+
+static void build_appearance_page(lv_obj_t *tile)
+{
+    lv_obj_t *list;
+    s_appearance = page(tile, "APPEARANCE", true, &list);
+    note(list, "Avatar on the face:");
+    for (int i = 0; i < MUSE_AVATAR_COUNT; i++) {
+        row(list, NULL, AVATAR_NAMES[i], &s_avatar_checks[i], on_avatar_choice, (void *)(intptr_t)i);
+        lv_obj_set_style_text_color(s_avatar_checks[i], lv_color_hex(COLOR_ACCENT), 0);
+    }
+    note(list, "Pixel art is drawn by your Muse; the picture is the one in the Muse app, "
+               "brought to life by the board.");
+}
+#endif
+
 /* ---------- Battery ---------- */
 
 static void on_battery_reset(lv_event_t *e)
@@ -1568,6 +1603,9 @@ static const page_t SOUND = { &s_sound, build_sound_page };
 static const page_t SLEEP = { &s_sleep, build_sleep_page };
 static const page_t BATTERY = { &s_battery, build_battery_page };
 static const page_t POWER = { &s_power, build_power_page };
+#if MUSE_HAS_PHOTO_AVATAR
+static const page_t APPEARANCE = { &s_appearance, build_appearance_page };
+#endif
 
 #if CONFIG_MUSE_VIDEO
 /* Phone camera: the video view, which asks the phone for a stream. */
@@ -1590,6 +1628,9 @@ static void build_home(lv_obj_t *tile)
     } else {
         row(list, LV_SYMBOL_VOLUME_MAX, "Sound", &s_home_sound, on_nav, (void *)&SOUND);
     }
+#if MUSE_HAS_PHOTO_AVATAR
+    row(list, LV_SYMBOL_IMAGE, "Appearance", &s_home_appearance, on_nav, (void *)&APPEARANCE);
+#endif
     row(list, LV_SYMBOL_EYE_CLOSE, "Sleep", &s_home_sleep, on_nav, (void *)&SLEEP);
     row(list, LV_SYMBOL_BATTERY_FULL, "Battery", &s_home_battery, on_nav, (void *)&BATTERY);
 #if CONFIG_MUSE_VIDEO
@@ -1628,6 +1669,9 @@ static void tick_home(void)
         set_text(s_home_sound, "Muted");
     }
     set_text(s_home_sleep, sleep_name(muse_settings_sleep_s()));
+#if MUSE_HAS_PHOTO_AVATAR
+    set_text(s_home_appearance, muse_settings_avatar() == MUSE_AVATAR_PHOTO ? "Picture" : "Pixel art");
+#endif
 
     muse_power_t p = muse_state_power();
     char buf[96];
@@ -1727,6 +1771,10 @@ void muse_settings_ui_tick(bool visible)
         tick_sleep();
     } else if (s_current == s_battery) {
         tick_battery();
+#if MUSE_HAS_PHOTO_AVATAR
+    } else if (s_current == s_appearance) {
+        tick_appearance();
+#endif
     }
 }
 
