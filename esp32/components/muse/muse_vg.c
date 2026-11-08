@@ -45,7 +45,9 @@
 #include "sdkconfig.h"
 
 #include "muse_audio.h"
+#include "muse_settings.h"
 #include "muse_state.h"
+#include "muse_voice_call.h"
 #include "muse_voice.h"
 #include "muse_wifi.h"
 
@@ -211,7 +213,15 @@ void muse_vg_uplink_held(size_t n)
 
 static void set_state(muse_vg_state_t st, const char *why)
 {
-    if (atomic_exchange(&s_state, st) != (int)st) {
+    int was = atomic_exchange(&s_state, st);
+    if (was != (int)st && muse_settings_vg_explain() && muse_voice_in_call()) {
+        if (st == MUSE_VG_LOST) {
+            muse_voice_call_guard_note(false);
+        } else if (st == MUSE_VG_VERIFIED && was == MUSE_VG_LOST) {
+            muse_voice_call_guard_note(true);   /* out of refusal: the owner's back */
+        }
+    }
+    if (was != (int)st) {
         ESP_LOGI(TAG, "VG state %s (%s)", st == MUSE_VG_VERIFIED ? "verified" : st == MUSE_VG_LOST ? "lost" : "unverified",
                  why);
     }
@@ -372,7 +382,7 @@ static void show_verdict(const char *id, float score, bool accept, int rtt, int 
         /* The accepted window is the caller's: it goes up, and on from there. */
         atomic_store(&s_release_from, win_end - WINDOW_SAMPLES);
         set_state(MUSE_VG_VERIFIED, "a window accepted");
-    } else if (!accept && s_rejects >= REJECTS_TO_RED && atomic_load(&s_state) == MUSE_VG_VERIFIED) {
+    } else if (!accept && s_rejects >= REJECTS_TO_RED && atomic_load(&s_state) != MUSE_VG_LOST) {
         set_state(MUSE_VG_LOST, "rejects in a row");
     }
     bool have = atomic_load(&s_have);

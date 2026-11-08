@@ -82,6 +82,8 @@ static atomic_bool s_dnd;
 static atomic_int s_spk_boost = CONFIG_MUSE_SPEAKER_MAX_DB;
 static atomic_bool s_autorotate;
 static atomic_bool s_clock24 = true;   /* 24-hour time unless set otherwise */
+/* Voice guard, a voice not recognized in a call: a notice, a tone, Muse saying so. */
+static atomic_bool s_vg_notice = true, s_vg_tone = true, s_vg_explain;
 static atomic_int s_theme = CONFIG_MUSE_DEFAULT_THEME;
 static atomic_int s_sleep_from = -1, s_sleep_to = -1;
 static char s_tz[MUSE_TZ_MAX + 1] = CONFIG_MUSE_TIMEZONE;   /* under s_lock */
@@ -162,6 +164,15 @@ esp_err_t muse_settings_init(void)
     }
     if (nvs_get_u8(s_nvs, "clock24", &b) == ESP_OK) {
         atomic_store(&s_clock24, b != 0);
+    }
+    if (nvs_get_u8(s_nvs, "vg_notice", &b) == ESP_OK) {
+        atomic_store(&s_vg_notice, b != 0);
+    }
+    if (nvs_get_u8(s_nvs, "vg_tone", &b) == ESP_OK) {
+        atomic_store(&s_vg_tone, b != 0);
+    }
+    if (nvs_get_u8(s_nvs, "vg_explain", &b) == ESP_OK) {
+        atomic_store(&s_vg_explain, b != 0);
     }
     if (nvs_get_u8(s_nvs, "spk_boost", &b) == ESP_OK && b <= MUSE_SPEAKER_BOOST_MAX) {
         atomic_store(&s_spk_boost, b);
@@ -245,6 +256,28 @@ void muse_settings_set_autorotate(bool on)
 }
 
 bool muse_settings_clock24(void) { return atomic_load(&s_clock24); }
+
+bool muse_settings_vg_notice(void) { return atomic_load(&s_vg_notice); }
+bool muse_settings_vg_tone(void) { return atomic_load(&s_vg_tone); }
+bool muse_settings_vg_explain(void) { return atomic_load(&s_vg_explain); }
+
+void muse_settings_set_vg_notice(bool on)
+{
+    atomic_store(&s_vg_notice, on);
+    save_u8("vg_notice", on);
+}
+
+void muse_settings_set_vg_tone(bool on)
+{
+    atomic_store(&s_vg_tone, on);
+    save_u8("vg_tone", on);
+}
+
+void muse_settings_set_vg_explain(bool on)
+{
+    atomic_store(&s_vg_explain, on);
+    save_u8("vg_explain", on);
+}
 
 void muse_settings_set_clock24(bool on)
 {

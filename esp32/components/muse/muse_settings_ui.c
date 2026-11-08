@@ -1449,6 +1449,21 @@ static void on_cal_button(lv_event_t *e)
     cal_close();
 }
 
+static void on_vg_notice_sw(lv_event_t *e)
+{
+    muse_settings_set_vg_notice(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
+}
+
+static void on_vg_tone_sw(lv_event_t *e)
+{
+    muse_settings_set_vg_tone(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
+}
+
+static void on_vg_explain_sw(lv_event_t *e)
+{
+    muse_settings_set_vg_explain(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
+}
+
 static void on_cal_x(lv_event_t *e)
 {
     (void)e;
@@ -1564,6 +1579,10 @@ static void build_sound_page(lv_obj_t *tile)
     if (muse_vg_running()) {
         row(list, NULL, "Calibrate voice", NULL, on_cal_open, NULL);
         note(list, "Read a short script aloud so the board recognizes your voice.");
+        note(list, "When a voice isn't recognized in a call:");
+        switch_row(list, "Show notice", muse_settings_vg_notice(), on_vg_notice_sw);
+        switch_row(list, "Play tone", muse_settings_vg_tone(), on_vg_tone_sw);
+        switch_row(list, "Muse explains", muse_settings_vg_explain(), on_vg_explain_sw);
     }
 #endif
 

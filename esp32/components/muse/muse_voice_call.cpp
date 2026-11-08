@@ -149,6 +149,12 @@ static std::atomic<uint32_t> s_status{0};
 /* Reply audio in and out of s_out, bytes, wrapping: a caption is stamped with
  * what was in when its text came, and shown once that much is out. */
 static std::atomic<uint32_t> s_out_in{0}, s_out_out{0};
+#ifdef CONFIG_MUSE_VG_SPEAKER
+#define CONFIG_MUSE_VG_SPEAKER_OR_DEFAULT CONFIG_MUSE_VG_SPEAKER
+#else
+#define CONFIG_MUSE_VG_SPEAKER_OR_DEFAULT ""
+#endif
+static std::atomic<int> s_guard_note{0};   /* 1 lost, 2 verified: to send once live */
 static bool s_first_audio, s_first_voice;   /* the call's first reply audio, and first audible, for the timing log */
 static std::atomic<uint32_t> s_in_written{0};      /* bytes the voice task put in s_in */
 
@@ -1019,8 +1025,34 @@ static bool pump_ptt(int64_t now)
     return true;
 }
 
+/* The voice guard's note, if one waits and the call can take it. */
+static bool send_guard_note(void)
+{
+    if (s_call.state != MUSE_VC_LIVE || !s_media_id) {
+        return true;
+    }
+    int note = s_guard_note.exchange(0);
+    if (!note) {
+        return true;
+    }
+    char line[160];
+    int n = snprintf(line, sizeof(line), "{\"type\":\"hatch.voice_guard\",\"state\":\"%s\",\"speaker\":\"%s\"}\n",
+                     note == 2 ? "verified" : "lost", CONFIG_MUSE_VG_SPEAKER_OR_DEFAULT);
+    ESP_LOGI(TAG, "voice guard note: %s", note == 2 ? "verified" : "lost");
+    return n <= 0 || (size_t)n >= sizeof(line) ||
+           muse_session_call_send(s_media_id, reinterpret_cast<const uint8_t *>(line), (size_t)n, false);
+}
+
+extern "C" void muse_voice_call_guard_note(bool verified)
+{
+    s_guard_note.store(verified ? 2 : 1);
+}
+
 static bool pump_mic(int64_t now)
 {
+    if (!send_guard_note()) {
+        return false;
+    }
     if (ptt_keeps_audio() && s_call.state != MUSE_VC_LIVE) {
         drop_before_call();   /* held audio waits for the call */
         return true;

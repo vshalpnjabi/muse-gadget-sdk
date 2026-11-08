@@ -98,6 +98,9 @@ muse_voice_call_ev_t muse_voice_call_event(char *text, size_t cap);
 /* Whether the last REPLY caption from muse_voice_call_event() is due on screen:
  * its words' audio has reached the speaker. Voice task. */
 bool muse_voice_call_caption_due(void);
+/* The voice guard's verdict changed in a live call (lost / verified): one
+ * {"type":"hatch.voice_guard",...} line goes up, for Muse to say so. Any task. */
+void muse_voice_call_guard_note(bool verified);
 
 /*
  * A push-to-talk call's state for the screen, read without locking (each

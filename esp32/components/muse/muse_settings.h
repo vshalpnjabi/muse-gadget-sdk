@@ -95,6 +95,14 @@ void muse_settings_set_autorotate(bool on);
 /* Settings > Appearance > 24-hour clock: 21:47 rather than 9:47 on the face (on by default). */
 bool muse_settings_clock24(void);
 void muse_settings_set_clock24(bool on);
+/* Settings > Sound, the voice guard: when a call's voice isn't recognized, show a notice
+ * (on), play a tone (on), and/or have Muse say so (off: needs Muse's side). */
+bool muse_settings_vg_notice(void);
+bool muse_settings_vg_tone(void);
+bool muse_settings_vg_explain(void);
+void muse_settings_set_vg_notice(bool on);
+void muse_settings_set_vg_tone(bool on);
+void muse_settings_set_vg_explain(bool on);
 
 /* Do not disturb (Settings > Sleep, or asked of Muse): the board makes none
  * of its own sounds (touch, motion, chirps); Muse's answers to you still play. */

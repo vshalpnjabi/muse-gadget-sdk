@@ -977,6 +977,7 @@ typedef struct {
 
 #if CONFIG_MUSE_VG_ENFORCE
 #define VG_PTT_WAIT_US 2500000LL
+#define VG_NOTICE "VOICE NOT RECOGNIZED"
 #define VG_PTT_WAIT_US_OR_0 VG_PTT_WAIT_US
 
 /* The uplink, voice guard enforcing: the mic chunk is in the guard's ring
@@ -1154,6 +1155,25 @@ static void run_call(bool ptt, size_t waking_chunks)
             if (ended) break;
         }
         if (ended) break;
+#if CONFIG_MUSE_VG_ENFORCE
+        {
+            /* A voice not recognized: a notice and/or a tone (Settings > Sound). */
+            static muse_vg_state_t seen = MUSE_VG_UNVERIFIED;
+            muse_vg_state_t st = muse_vg_state();
+            if (st != seen) {
+                if (st == MUSE_VG_LOST) {
+                    if (muse_settings_vg_notice()) muse_state_set_caption("%s", VG_NOTICE);
+                    if (muse_settings_vg_tone() && muse_settings_speaker_on()) muse_audio_sfx(MUSE_SFX_CHIRP_DOWN);
+                } else if (seen == MUSE_VG_LOST) {
+                    char cur[48];
+                    if (muse_state_caption(cur, sizeof(cur), NULL) && !strcmp(cur, VG_NOTICE)) {
+                        muse_state_set_caption("%s", "");   /* recognized again */
+                    }
+                }
+                seen = st;
+            }
+        }
+#endif
         if (pending_reply[0] && muse_voice_call_caption_due()) {
             spoken_caption(false, pending_reply);
             pending_reply[0] = '\0';
