@@ -36,6 +36,9 @@
 #include "muse_input.h"
 #include "muse_mem.h"
 #include "muse_settings.h"
+#if CONFIG_MUSE_CLOCK
+#include "muse_clock.h"
+#endif
 #include "muse_state.h"
 #include "muse_wifi.h"
 #if CONFIG_MUSE_REALTIME_VOICE
@@ -350,13 +353,25 @@ static void take(rec_stats_t *st, const int16_t *pcm)
  * gets the part after the press. It streams to Hatch as it goes if it can.
  * If not, the note is kept in s_rec to send later, and streams from partway
  * if Hatch comes within reach. Returns false if Hatch failed the turn with no
- * kept note to fall back on (why says what failed). There is no start chirp:
- * anything played now would land on top of the first words.
+ * kept note to fall back on (why says what failed). It starts with the
+ * ready beep (90 ms; the mic may catch a little of it at the note's start).
  */
+/* A small beep: Muse is ready for you to talk (a call goes live, a voice
+ * note starts). Not with the speaker off or do not disturb. */
+static void ready_beep(void)
+{
+    if (!muse_settings_speaker_on()) return;
+#if CONFIG_MUSE_CLOCK
+    if (muse_clock_quiet()) return;
+#endif
+    muse_audio_chirp(1);
+}
+
 static bool record(bool barge_in, size_t *held, char *why, size_t cap)
 {
     muse_state_set_mode(MUSE_MODE_LISTENING);
     muse_state_set_progress(0);
+    ready_beep();
     s_rec_n = s_sent = 0;
     s_live = s_tried = false;
     if (!s_rec || (muse_hatch_ready() && !s_held_count)) {
@@ -1130,6 +1145,7 @@ static void run_call(bool ptt, size_t waking_chunks)
             case MUSE_VOICE_CALL_EV_READY:
                 c.live = true;
                 muse_state_set_caption(ptt ? PTT_READY_CAPTION : "IN A CALL - PRESS TO HANG UP");
+                ready_beep();   /* the call's live: talk now */
                 break;
             case MUSE_VOICE_CALL_EV_HEARD:
                 spoken_caption(true, text);
