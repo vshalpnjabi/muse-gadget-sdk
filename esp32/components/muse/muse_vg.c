@@ -26,6 +26,7 @@
 #include "muse_vg.h"
 
 #include <inttypes.h>
+#include <math.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
@@ -59,6 +60,12 @@ static const char *TAG = "muse_vg";
 #define HOME_RETRY_US 60000000LL       /* home failed: the HTTPS base for this long */
 #define PENDING_MAX 8
 #define RESP_MAX 512
+/* Only windows with the caller's speech are scored, so quiet isn't a red. */
+#define SLICE 480                       /* 30 ms */
+#define SPEECH_OVER_FLOOR_DB 12.0f      /* a slice this far over the window's quiet is speech */
+#define SPEECH_MIN_DB -50.0f            /* and at least this loud */
+#define SPEECH_MIN_MS 1200              /* of the window's 3 s */
+#define MUSE_ECHO_US 3000000LL          /* Muse spoke within this: its voice is in the window */
 
 /* The ring: written by the voice task, read by the worker. */
 static int16_t *s_ring;
@@ -75,6 +82,7 @@ typedef struct {
     int base;                          /* 0 home, 1 away */
     char id[48];
     int64_t posted_us, next_poll_us;
+    int speech_ms;
 } pending_t;
 static pending_t s_pending[PENDING_MAX];
 
@@ -82,6 +90,7 @@ static esp_http_client_handle_t s_cli[2];
 static char s_resp[RESP_MAX];
 static size_t s_resp_len;
 static int64_t s_home_down_until;
+static int64_t s_muse_spoke_us = -MUSE_ECHO_US;   /* last seen speaking */
 
 void muse_vg_tee(const int16_t *pcm, size_t frames)
 {
@@ -210,6 +219,40 @@ static bool parse_verdict(float *score, bool *accept)
 }
 
 /* Posts the last 3 s; on the home base unless it failed lately, then the HTTPS one. */
+/* How much of the window is speech, in ms, and its loud end in dBFS: slices
+ * well over the window's own quiet (its 20th percentile) and over a floor. */
+static int speech_ms(const int16_t *win, float *peak_db)
+{
+    enum { N = WINDOW_SAMPLES / SLICE };
+    static float db[N], sorted[N];
+    for (int i = 0; i < N; i++) {
+        double acc = 0;
+        for (int j = 0; j < SLICE; j++) {
+            double x = win[i * SLICE + j];
+            acc += x * x;
+        }
+        db[i] = 10.0f * log10f((float)(acc / SLICE / (32768.0 * 32768.0)) + 1e-10f);
+        sorted[i] = db[i];
+    }
+    for (int i = 1; i < N; i++) {   /* insertion sort: 100 values */
+        float v = sorted[i];
+        int j = i - 1;
+        while (j >= 0 && sorted[j] > v) {
+            sorted[j + 1] = sorted[j];
+            j--;
+        }
+        sorted[j + 1] = v;
+    }
+    float floor_db = sorted[N / 5];
+    float gate = floor_db + SPEECH_OVER_FLOOR_DB > SPEECH_MIN_DB ? floor_db + SPEECH_OVER_FLOOR_DB : SPEECH_MIN_DB;
+    int voiced = 0;
+    for (int i = 0; i < N; i++) {
+        voiced += db[i] > gate;
+    }
+    *peak_db = sorted[N - 1];
+    return voiced * SLICE * 1000 / RATE;
+}
+
 static void post_window(int16_t *win, int64_t now)
 {
     if (xSemaphoreTake(s_ring_lock, pdMS_TO_TICKS(50)) != pdTRUE) {
@@ -220,6 +263,16 @@ static void post_window(int16_t *win, int64_t now)
     memcpy(win, s_ring + start, first * sizeof(int16_t));
     memcpy(win + first, s_ring, (WINDOW_SAMPLES - first) * sizeof(int16_t));
     xSemaphoreGive(s_ring_lock);
+
+    /* Not the caller speaking: grey, not sent. */
+    float peak_db;
+    int ms = speech_ms(win, &peak_db);
+    const char *skip = now - s_muse_spoke_us < MUSE_ECHO_US ? "muse speaking" : ms < SPEECH_MIN_MS ? "quiet" : NULL;
+    if (skip) {
+        ESP_LOGI(TAG, "VG window skipped (%s) speech_ms=%d peak=%.0fdB", skip, ms, peak_db);
+        atomic_store(&s_have, false);
+        return;
+    }
 
     static char path[96];
     snprintf(path, sizeof(path), "/window?speaker=%s&format=pcm16", CONFIG_MUSE_VG_SPEAKER);
@@ -237,7 +290,8 @@ static void post_window(int16_t *win, int64_t now)
     }
     for (int i = 0; i < PENDING_MAX; i++) {
         if (!s_pending[i].on) {
-            s_pending[i] = (pending_t){ .on = true, .base = base, .posted_us = now, .next_poll_us = now + POLL_EVERY_US };
+            s_pending[i] = (pending_t){ .on = true, .base = base, .posted_us = now, .next_poll_us = now + POLL_EVERY_US,
+                                        .speech_ms = ms };
             strlcpy(s_pending[i].id, id, sizeof(s_pending[i].id));
             return;
         }
@@ -265,7 +319,8 @@ static void poll_verdicts(int64_t now)
         bool accept = false;
         if (status >= 200 && status < 300 && parse_verdict(&score, &accept)) {
             int rtt = (int)((esp_timer_get_time() - p->posted_us) / 1000);
-            ESP_LOGI(TAG, "VG window id=%s score=%.3f accept=%d rtt_ms=%d", p->id, score, accept, rtt);
+            ESP_LOGI(TAG, "VG window id=%s score=%.3f accept=%d rtt_ms=%d speech_ms=%d", p->id, score, accept, rtt,
+                     p->speech_ms);
             atomic_store(&s_score, score);
             atomic_store(&s_accept, accept);
             atomic_store(&s_have, true);
@@ -299,6 +354,9 @@ static void vg_task(void *arg)
         int64_t now = esp_timer_get_time();
         poll_verdicts(now);
         bool on = active();
+        if (muse_voice_call_view() == MUSE_VOICE_VIEW_SPEAKING) {
+            s_muse_spoke_us = now;
+        }
         if (on && !was_active) {
             /* A new session: the ring still holds the last one's audio, so the
              * first window waits for 3 s of this one's. */
