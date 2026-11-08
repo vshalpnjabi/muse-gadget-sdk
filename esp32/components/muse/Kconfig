@@ -434,11 +434,12 @@ menu "Muse"
             session to its paired VM and replies are shown as text.
 
     config MUSE_UI_TOUCH_SOUNDS
-        bool "A chirp now and then when you touch Muse"
+        bool "Little sounds when you touch Muse"
         default n
         help
-            About two touches in five on Muse's face also play a short chirp,
-            while Muse is idle and the speaker is on.
+            Most touches on Muse's face also play a short sound (a chirp, a
+            giggle, a boing, a sparkle...), picked by where you touched the
+            photo face, while Muse is idle and the speaker is on.
 
     config MUSE_UI_FIXED_AVATAR
         bool "Muse keeps its size while captions show"

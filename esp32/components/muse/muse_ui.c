@@ -51,9 +51,7 @@
 #include "muse_text.h"
 #include "muse_wifi.h"
 #include "muse_voice.h"
-#if CONFIG_MUSE_UI_TOUCH_SOUNDS
 #include "esp_random.h"
-#endif
 #if CONFIG_MUSE_VIDEO
 #include "muse_video.h"
 #endif
@@ -615,17 +613,27 @@ static void build_button_icons(lv_obj_t *face)
 static void on_canvas_clicked(lv_event_t *e)
 {
     (void)e;
+    int sfx = esp_random() % 100 < 80 ? (int)(esp_random() % MUSE_SFX_COUNT) : -1;
 #if MUSE_HAS_PHOTO_AVATAR
     if (s_photo) {
-        muse_photo_poke();   /* a different reaction from the last */
+        /* Where on Muse it landed picks the reaction (and its sound). */
+        lv_point_t pt;
+        lv_area_t a;
+        lv_indev_get_point(lv_indev_active(), &pt);
+        lv_obj_get_coords(s_canvas, &a);
+        float u = (float)(pt.x - a.x1) / (float)lv_area_get_width(&a);
+        float v = (float)(pt.y - a.y1) / (float)lv_area_get_height(&a);
+        sfx = muse_photo_touch(u, v, lv_tick_get() / 1000.0f);
     }
 #endif
     muse_state_make_happy();
 #if CONFIG_MUSE_UI_TOUCH_SOUNDS
-    /* Now and then a little chirp too, only while Muse is idle and the speaker's on. */
-    if (muse_settings_speaker_on() && muse_state_mode(NULL) == MUSE_MODE_IDLE && esp_random() % 100 < 40) {
-        muse_voice_request_chirp();
+    /* Most touches make a little sound, only while Muse is idle and the speaker's on. */
+    if (sfx >= 0 && muse_settings_speaker_on() && muse_state_mode(NULL) == MUSE_MODE_IDLE) {
+        muse_voice_request_sound(sfx);
     }
+#else
+    (void)sfx;
 #endif
 }
 
@@ -1039,7 +1047,7 @@ static void build_answer(lv_obj_t *face, int ring_in)
      * where it crosses Muse. */
     for (int k = ANSWER_HEARD; k <= ANSWER_READ; k++) {
         answer_layout_t *f = &s_answers[k];
-        int lines = k == ANSWER_HEARD ? 2 : 3;
+        int lines = 2;   /* one band for every caption: the same place, every time */
         int hh = lines * pitch - CAPTION_LINE_SPACE;
         f->px = s_canvas_px;
         f->y = s_big_y;
@@ -1053,6 +1061,15 @@ static void build_answer(lv_obj_t *face, int ring_in)
             }
         }
     }
+#endif
+#if CONFIG_MUSE_UI_FIXED_AVATAR
+    /* Status captions (CONNECTING, PUSH TO TALK, a live transcript) in that same band. */
+    const answer_layout_t *band = &s_answers[ANSWER_HEARD];
+    lv_obj_set_size(s_caption_lbl, band->w, band->h);
+    lv_obj_align(s_caption_lbl, LV_ALIGN_CENTER, 0, band->top + band->h / 2);
+    lv_obj_set_style_bg_color(s_caption_lbl, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(s_caption_lbl, LV_OPA_60, 0);
+    lv_obj_set_style_radius(s_caption_lbl, 6, 0);
 #endif
     ESP_LOGI(TAG, "reply pages: %d x %d heard, %d x %d read", s_answers[ANSWER_HEARD].cols,
              s_answers[ANSWER_HEARD].lines, l->cols, l->lines);

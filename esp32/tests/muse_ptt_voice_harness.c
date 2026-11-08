@@ -120,6 +120,7 @@ void muse_hatch_set_resting(bool v) { (void)v; }
 void muse_audio_power(bool v) { (void)v; }
 void muse_audio_selftest(void) {}
 void muse_audio_chirp(int v) { (void)v; }
+void muse_audio_sfx(int k) { (void)k; }
 void muse_audio_loopback_test(int v) { (void)v; }
 size_t muse_hatch_mp3_selftest(int16_t **p) { *p=NULL; return 0; }
 float muse_audio_dbfs(const int16_t *p,size_t n) { (void)n; return (float)p[0]/100-50; }

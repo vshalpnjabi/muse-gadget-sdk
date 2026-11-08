@@ -1458,6 +1458,11 @@ static void build_appearance_page(lv_obj_t *tile)
 {
     lv_obj_t *list;
     s_appearance = page(tile, "APPEARANCE", true, &list);
+    if (!muse_board->epaper) {
+        /* The same slider as Sound's (one page is built at a time): where people look for it. */
+        s_bright_sl = slider(list, "Brightness", 10, 100, muse_settings_brightness(), &s_bright_val, on_bright);
+        set_val(s_bright_val, "%d%%", muse_settings_brightness());
+    }
 #if MUSE_HAS_PHOTO_AVATAR
     note(list, "Avatar on the face:");
     for (int i = 0; i < MUSE_AVATAR_COUNT; i++) {

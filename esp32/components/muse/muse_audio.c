@@ -494,6 +494,52 @@ float muse_audio_level(const int16_t *mono, size_t frames)
     return l < 0 ? 0 : (l > 1 ? 1 : l);
 }
 
+/* One note of a sound effect: a glide from f0 to f1 Hz, with optional vibrato. */
+typedef struct {
+    uint16_t f0, f1, ms;
+    uint8_t vib;      /* vibrato depth in percent of the pitch */
+} sfx_note_t;
+
+/* Short, soft 8-bit sounds for touches. Each is a few notes, made a chunk at
+ * a time on the stack: none holds a buffer in internal RAM. */
+void muse_audio_sfx(int kind)
+{
+    static const sfx_note_t SFX[][4] = {
+        [MUSE_SFX_CHIRP_UP] = { { 620, 1180, 90, 0 } },
+        [MUSE_SFX_CHIRP_DOWN] = { { 980, 560, 90, 0 } },
+        [MUSE_SFX_BIP_BOOP] = { { 880, 880, 60, 0 }, { 0, 0, 25, 0 }, { 620, 590, 80, 0 } },
+        [MUSE_SFX_GIGGLE] = { { 900, 1100, 45, 0 }, { 0, 0, 20, 0 }, { 1000, 1250, 45, 0 }, { 1150, 1450, 55, 0 } },
+        [MUSE_SFX_BOING] = { { 260, 520, 220, 8 } },
+        [MUSE_SFX_SPARKLE] = { { 1600, 1600, 35, 0 }, { 2000, 2000, 35, 0 }, { 2400, 2400, 35, 0 }, { 3000, 2800, 60, 0 } },
+    };
+    if (kind < 0 || kind >= MUSE_SFX_COUNT) {
+        return;
+    }
+    int16_t buf[MUSE_AUDIO_CHUNK];
+    float phase = 0;
+    for (int n = 0; n < 4 && SFX[kind][n].ms; n++) {
+        const sfx_note_t *note = &SFX[kind][n];
+        int total = MUSE_AUDIO_RATE * note->ms / 1000;
+        for (int at = 0; at < total;) {
+            int m = total - at < MUSE_AUDIO_CHUNK ? total - at : MUSE_AUDIO_CHUNK;
+            for (int i = 0; i < m; i++) {
+                float x = (float)(at + i) / total;
+                float s = 0;
+                if (note->f0) {
+                    float f = note->f0 + (note->f1 - note->f0) * x;
+                    f *= 1.0f + note->vib / 100.0f * sinf(2.0f * (float)M_PI * 18.0f * (at + i) / MUSE_AUDIO_RATE);
+                    phase += 2.0f * (float)M_PI * f / MUSE_AUDIO_RATE;
+                    float env = (x < 0.1f ? x / 0.1f : 1.0f) * (1.0f - x) * (1.0f - x);
+                    s = (sinf(phase) + 0.3f * sinf(3.0f * phase)) * env * 7000.0f;   /* soft 8-bit flavour */
+                }
+                buf[i] = (int16_t)s;
+            }
+            muse_audio_write(buf, m);
+            at += m;
+        }
+    }
+}
+
 void muse_audio_chirp(int rising)
 {
     enum { MS = 90, N = MUSE_AUDIO_RATE * MS / 1000 };

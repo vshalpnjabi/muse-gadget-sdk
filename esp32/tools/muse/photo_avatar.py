@@ -154,7 +154,7 @@ def face_patches(im, eyes, eye_size, mouth):
     """The face's moving parts, drawn from the picture's own colours, as
     (x, y, w, h, image) patches the board swaps in: eyes closed, eyes happy
     (closed in an upward curve), glancing left and right, the mouth open small,
-    medium and wide, a smile, and a wink.
+    medium and wide, a smile, and a wink with either eye.
     Order matters: muse_photo.c names them by index."""
     from PIL import ImageDraw
     out = []
@@ -215,20 +215,20 @@ def face_patches(im, eyes, eye_size, mouth):
         d.line(pts, fill=lip, width=2)
         out.append((x0, y0, p))
     if eyes:
-        # A wink: the eye on the screen's right closed, the other open.
+        # Winks: one eye closed, the other open, the screen's right eye then its left.
         lx, ly, rx_, ry_ = eyes
         x0, y0 = min(lx, rx_) - rx - 4, min(ly, ry_) - ry - 4
         x1, y1 = max(lx, rx_) + rx + 5, max(ly, ry_) + ry + 5
-        p = im.crop((x0, y0, x1, y1)).copy()
-        d = ImageDraw.Draw(p)
-        cx, cy = rx_, ry_
-        skin = _lid(im, cx, cy, rx, ry)
-        lash = _darkest(im, (cx - rx // 2, cy - ry, cx + rx // 2, cy - ry // 2))
-        ex, ey = cx - x0, cy - y0
-        d.ellipse((ex - rx, ey - ry, ex + rx, ey + ry), fill=skin)
-        pts = [(ex + k, ey + 1 + 3.5 * (1 - (k / rx) ** 2)) for k in range(-rx + 1, rx)]
-        d.line(pts, fill=lash, width=2)
-        out.append((x0, y0, p))
+        for cx, cy in ((rx_, ry_), (lx, ly)):
+            p = im.crop((x0, y0, x1, y1)).copy()
+            d = ImageDraw.Draw(p)
+            skin = _lid(im, cx, cy, rx, ry)
+            lash = _darkest(im, (cx - rx // 2, cy - ry, cx + rx // 2, cy - ry // 2))
+            ex, ey = cx - x0, cy - y0
+            d.ellipse((ex - rx, ey - ry, ex + rx, ey + ry), fill=skin)
+            pts = [(ex + k, ey + 1 + 3.5 * (1 - (k / rx) ** 2)) for k in range(-rx + 1, rx)]
+            d.line(pts, fill=lash, width=2)
+            out.append((x0, y0, p))
     return [(x, y, p.size[0], p.size[1], p) for x, y, p in out]
 
 
@@ -326,7 +326,7 @@ def main():
                   "MUSE_PHOTO_EYES_RIGHT"] if eyes else []) + \
                 (["MUSE_PHOTO_MOUTH_1", "MUSE_PHOTO_MOUTH_2", "MUSE_PHOTO_MOUTH_3",
                   "MUSE_PHOTO_MOUTH_SMILE"] if mouth else []) + \
-                (["MUSE_PHOTO_EYES_WINK"] if eyes else [])
+                (["MUSE_PHOTO_EYES_WINK", "MUSE_PHOTO_EYES_WINK_L"] if eyes else [])
         f.write("const muse_photo_patch_t muse_photo_patches[] = {\n")
         for k, ((x, y, w, h, p), kind) in enumerate(zip(patches, kinds)):
             f.write(f"    {{ {kind}, {x}, {y}, {w}, {h}, patch{k} }},\n")

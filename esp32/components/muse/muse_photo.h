@@ -46,7 +46,8 @@ typedef enum {
     MUSE_PHOTO_EYES_LEFT,     /* idle glances, as you look at the screen */
     MUSE_PHOTO_EYES_RIGHT,
     MUSE_PHOTO_MOUTH_SMILE,   /* an idle smile */
-    MUSE_PHOTO_EYES_WINK,     /* one eye closed: a touch reaction */
+    MUSE_PHOTO_EYES_WINK,     /* the screen's right eye closed: a touch reaction */
+    MUSE_PHOTO_EYES_WINK_L,   /* the screen's left eye closed */
 } muse_photo_part_t;
 
 typedef struct {
@@ -58,9 +59,13 @@ typedef struct {
 extern const muse_photo_patch_t muse_photo_patches[];
 extern const int muse_photo_patch_count;
 
-/* A touch on the face: the next pet (muse_state_make_happy) gets a different
- * reaction from the last: a happy squint, a wink, a giggle or surprise. */
-void muse_photo_poke(void);
+/* A touch on the face at (u, v), each 0..1 across and down the avatar: the
+ * next pet (muse_state_make_happy) reacts to where it landed. The hair gets a
+ * ruffle and sparkles, an eye winks, the cheeks and mouth giggle with hearts,
+ * the chin nods, a shoulder makes Muse look that way, and three quick taps a
+ * playful head shake. now_s: any clock in seconds, to tell quick taps.
+ * Returns the touch sound to play (MUSE_SFX_*), or -1. */
+int muse_photo_touch(float u, float v, float now_s);
 
 /* Moves the picture for this frame. True if what it shows changed. */
 bool muse_photo_render(const muse_pose_t *pose);

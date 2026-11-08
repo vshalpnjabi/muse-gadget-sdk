@@ -65,3 +65,15 @@ float muse_audio_level(const int16_t *mono, size_t frames);
 
 /* Short UI chirp: rising for "go", falling for "done". */
 void muse_audio_chirp(int rising);
+
+/* Little sounds for touching Muse (blocking, the voice task plays them). */
+enum {
+    MUSE_SFX_CHIRP_UP,
+    MUSE_SFX_CHIRP_DOWN,
+    MUSE_SFX_BIP_BOOP,
+    MUSE_SFX_GIGGLE,
+    MUSE_SFX_BOING,
+    MUSE_SFX_SPARKLE,
+    MUSE_SFX_COUNT,
+};
+void muse_audio_sfx(int kind);

@@ -26,6 +26,8 @@
  */
 #include "muse_photo.h"
 
+#include "muse_audio.h"   /* MUSE_SFX_*, for a touch's sound */
+
 #include <math.h>
 #include <string.h>
 
@@ -60,6 +62,8 @@ static const muse_photo_patch_t *patch(muse_photo_part_t part)
 
 /* The patches showing this frame: eyes, mouth (NULL: the picture's own). */
 static const muse_photo_patch_t *s_eyes, *s_mouth;
+static bool s_floating;   /* hearts or sparkles up last frame */
+static float s_now;       /* render's clock, for the particles in scale() */
 
 /* Blinks come every 2.5 to 5.5 s, now and then a double one. */
 static float s_blink_at = 2.0f, s_blink_end;
@@ -128,13 +132,92 @@ static void idle_life(float t, float mt, float *dx, float *dy, muse_photo_part_t
     }
 }
 
-/* Touch reactions, a different one each pet (muse_photo_poke). */
-enum { REACT_HAPPY, REACT_WINK, REACT_GIGGLE, REACT_SURPRISE, REACT_COUNT };
-static int s_reaction;
+/* ---- Touch: a reaction to where you touched, and hearts and sparkles ---- */
 
-void muse_photo_poke(void)
+enum {
+    REACT_HAPPY, REACT_RUFFLE, REACT_WINK_R, REACT_WINK_L, REACT_GIGGLE, REACT_NOD,
+    REACT_LOOK_L, REACT_LOOK_R, REACT_SURPRISE, REACT_SHAKE,
+};
+static int s_reaction;
+static float s_react_t0;                     /* when it began, on render's clock */
+static bool s_touch_new;                     /* muse_photo_touch() since the last frame */
+static float s_tap_at[3] = { -9, -9, -9 };   /* the last taps, on the UI's clock */
+static float s_touch_u, s_touch_v;
+
+enum { PART_HEART, PART_SPARKLE };
+typedef struct {
+    float x, y, vx, vy, born, life;   /* canvas px, px/s, s */
+    uint8_t kind;
+    bool on;
+} particle_t;
+#define PARTICLES 10
+static particle_t s_parts[PARTICLES];
+static int s_spawn_kind = -1, s_spawn_n;
+
+/* Sprites, a row a byte (bit 6 leftmost, 7 wide), drawn 3x. */
+#define SPRITE_SCALE 3
+static const uint8_t HEART[6] = { 0x36, 0x7f, 0x7f, 0x3e, 0x1c, 0x08 };
+static const uint8_t SPARKLE[7] = { 0x08, 0x08, 0x1c, 0x7f, 0x1c, 0x08, 0x08 };
+#define HEART_RGB565 0xfa4f     /* pink-red */
+#define SPARKLE_RGB565 0xfeea   /* warm yellow */
+
+static void spawn(int kind, float x, float y, float t, int n)
 {
-    s_reaction = (s_reaction + 1 + (int)(next_rand() * (REACT_COUNT - 1))) % REACT_COUNT;
+    for (int k = 0; k < n; k++) {
+        for (int i = 0; i < PARTICLES; i++) {
+            particle_t *q = &s_parts[i];
+            if (q->on) continue;
+            q->on = true;
+            q->kind = (uint8_t)kind;
+            q->x = x + (next_rand() - 0.5f) * 60.0f;
+            q->y = y + (next_rand() - 0.5f) * 30.0f;
+            q->vx = (next_rand() - 0.5f) * 30.0f;
+            q->vy = kind == PART_HEART ? -55.0f - 25.0f * next_rand() : -15.0f * next_rand();
+            q->born = t + 0.12f * k;   /* staggered, not all at once */
+            q->life = kind == PART_HEART ? 1.4f : 0.9f;
+            break;
+        }
+    }
+}
+
+int muse_photo_touch(float u, float v, float now)
+{
+    s_tap_at[0] = s_tap_at[1];
+    s_tap_at[1] = s_tap_at[2];
+    s_tap_at[2] = now;
+    bool alt = next_rand() < 0.3f;   /* the same spot doesn't always do the same thing */
+    int sfx;
+    s_spawn_kind = -1;
+    s_spawn_n = 0;
+    if (now - s_tap_at[0] < 1.5f) {
+        s_reaction = REACT_SHAKE;                        /* three quick taps: a playful no-no */
+        sfx = MUSE_SFX_CHIRP_DOWN;
+    } else if (v < 0.27f) {
+        s_reaction = alt ? REACT_HAPPY : REACT_RUFFLE;   /* the hair */
+        sfx = MUSE_SFX_SPARKLE;
+        s_spawn_kind = PART_SPARKLE;
+        s_spawn_n = 4;
+    } else if (v < 0.43f && u > 0.25f && u < 0.75f) {
+        s_reaction = alt ? REACT_SURPRISE : u < 0.5f ? REACT_WINK_L : REACT_WINK_R;   /* an eye */
+        sfx = alt ? MUSE_SFX_BOING : MUSE_SFX_BIP_BOOP;
+    } else if (v < 0.56f) {
+        s_reaction = alt ? REACT_HAPPY : REACT_GIGGLE;   /* cheeks, nose, mouth */
+        sfx = MUSE_SFX_GIGGLE;
+        s_spawn_kind = PART_HEART;
+        s_spawn_n = 3;
+    } else if (v < 0.66f && u > 0.3f && u < 0.7f) {
+        s_reaction = REACT_NOD;                          /* the chin: yes */
+        sfx = MUSE_SFX_CHIRP_UP;
+        s_spawn_kind = PART_HEART;
+        s_spawn_n = 1;
+    } else {
+        s_reaction = alt ? REACT_SURPRISE : u < 0.5f ? REACT_LOOK_L : REACT_LOOK_R;   /* a shoulder */
+        sfx = MUSE_SFX_BOING;
+    }
+    s_touch_u = u;
+    s_touch_v = v;
+    s_touch_new = true;
+    return next_rand() < 0.8f ? sfx : -1;
 }
 
 bool muse_photo_render(const muse_pose_t *p)
@@ -170,40 +253,74 @@ bool muse_photo_render(const muse_pose_t *p)
         dy = 1.0f * sinf(TAU * t / 4.5f + 1.0f);
         break;
     }
+
+    if (s_touch_new) {
+        s_touch_new = false;
+        s_react_t0 = t;
+        if (s_spawn_kind == PART_SPARKLE) {
+            spawn(PART_SPARKLE, s_size * 0.5f, s_size * 0.12f, t, s_spawn_n);   /* round the hair */
+        } else if (s_spawn_kind == PART_HEART) {
+            spawn(PART_HEART, s_touch_u * s_size, s_touch_v * s_size, t, s_spawn_n);
+        }
+    }
+
     bool happy = p->happy > 0.25f;
     muse_photo_part_t pet_eyes = MUSE_PHOTO_EYES_HAPPY, pet_mouth = MUSE_PHOTO_MOUTH_1;
     if (p->happy > 0.01f) {
-        float h = p->happy;
+        float h = p->happy, a = t - s_react_t0;
         switch (s_reaction) {
-        case REACT_WINK:
-            pet_eyes = MUSE_PHOTO_EYES_WINK;
+        case REACT_RUFFLE:
+            dx += 3.0f * h * sinf(TAU * 5.0f * a);         /* a shake of the hair */
+            pet_mouth = MUSE_PHOTO_MOUTH_SMILE;
+            break;
+        case REACT_WINK_R:
+        case REACT_WINK_L:
+            pet_eyes = s_reaction == REACT_WINK_R ? MUSE_PHOTO_EYES_WINK : MUSE_PHOTO_EYES_WINK_L;
             pet_mouth = MUSE_PHOTO_MOUTH_SMILE;
             dy -= 2.0f * h;
             break;
         case REACT_GIGGLE:
-            dx += 3.0f * h * sinf(TAU * 6.0f * t);   /* a little wiggle */
+            dx += 3.0f * h * sinf(TAU * 6.0f * t);         /* a little wiggle */
             dy -= 2.0f * h * fabsf(sinf(TAU * 3.0f * t));
             pet_mouth = MUSE_PHOTO_MOUTH_2;
             break;
+        case REACT_NOD:
+            dy += 4.0f * h * sinf(TAU * 2.5f * a);         /* yes, yes */
+            pet_mouth = MUSE_PHOTO_MOUTH_SMILE;
+            break;
+        case REACT_LOOK_L:
+        case REACT_LOOK_R:
+            pet_eyes = s_reaction == REACT_LOOK_L ? MUSE_PHOTO_EYES_LEFT : MUSE_PHOTO_EYES_RIGHT;
+            dx += (s_reaction == REACT_LOOK_L ? -4.0f : 4.0f) * h;   /* turns to look */
+            pet_mouth = MUSE_PHOTO_MOUTH_SMILE;
+            break;
         case REACT_SURPRISE:
-            pet_eyes = MUSE_PHOTO_PATCH_NONE;      /* wide open */
-            pet_mouth = MUSE_PHOTO_MOUTH_2;        /* an "o" */
-            zoom += 0.04f * h;                     /* a pop towards you */
+            pet_eyes = MUSE_PHOTO_PATCH_NONE;               /* wide open */
+            pet_mouth = MUSE_PHOTO_MOUTH_2;                 /* an "o" */
+            zoom += 0.04f * h;                              /* a pop towards you */
+            break;
+        case REACT_SHAKE:
+            dx += 6.0f * h * sinf(TAU * 4.0f * a);         /* no, no */
+            pet_mouth = MUSE_PHOTO_MOUTH_SMILE;
             break;
         default:
-            dy -= 6.0f * h * fabsf(sinf(TAU * 2.0f * t));   /* a bounce when petted */
+            dy -= 6.0f * h * fabsf(sinf(TAU * 2.0f * t));  /* a bounce */
             break;
         }
     }
     muse_photo_part_t idle_eyes = MUSE_PHOTO_PATCH_NONE, idle_mouth = MUSE_PHOTO_PATCH_NONE;
     if (p->mode == MUSE_MODE_IDLE && !happy) {
+        bool was = s_act != ACT_NONE;
         idle_life(t, mt, &dx, &dy, &idle_eyes, &idle_mouth);
+        if (!was && s_act != ACT_NONE && next_rand() < 0.35f) {
+            spawn(PART_SPARKLE, s_size * (0.2f + 0.6f * next_rand()), s_size * 0.15f, t, 2);   /* a twinkle */
+        }
     } else if (s_act != ACT_NONE || t > s_next_act) {
         s_act = ACT_NONE;   /* busy: start over a little after it's idle again */
         s_next_act = t + 4.0f;
     }
 
-    /* Eyes: happy beats a blink; asleep, they close. */
+    /* Eyes: a reaction beats a blink; asleep, they close. */
     if (t >= s_blink_at) {
         s_blink_end = t + 0.13f;
         s_blink_at = t + (next_rand() < 0.15f ? 0.35f : 2.5f + 3.0f * next_rand());
@@ -216,7 +333,7 @@ bool muse_photo_render(const muse_pose_t *p)
     } else if (idle_eyes != MUSE_PHOTO_PATCH_NONE) {
         eyes = patch(idle_eyes);
     }
-    /* Mouth: open with the voice, a small smile when petted. */
+    /* Mouth: open with the voice, else the reaction's or the idle one's. */
     const muse_photo_patch_t *mouth = NULL;
     if (p->mode == MUSE_MODE_SPEAKING) {
         mouth = lvl > 0.55f ? patch(MUSE_PHOTO_MOUTH_3) : lvl > 0.25f ? patch(MUSE_PHOTO_MOUTH_2)
@@ -227,17 +344,55 @@ bool muse_photo_render(const muse_pose_t *p)
         mouth = patch(idle_mouth);
     }
 
+    /* Hearts float up and sparkles drift, each for its life. */
+    bool floating = false;
+    for (int i = 0; i < PARTICLES; i++) {
+        particle_t *q = &s_parts[i];
+        if (q->on && t - q->born > q->life) q->on = false;
+        floating |= q->on;
+    }
+
     int z = (int)lroundf(zoom * 1024), x2 = (int)lroundf(dx * 2), y2 = (int)lroundf(dy * 2);
     int b = (int)lroundf(bright * 16);
     bool changed = z != s_zoom || x2 != s_dx2 || y2 != s_dy2 || b != s_bright || eyes != s_eyes ||
-                   mouth != s_mouth;
+                   mouth != s_mouth || floating || s_floating;
+    s_floating = floating;
     s_zoom = z;
     s_dx2 = x2;
     s_dy2 = y2;
     s_bright = b;
     s_eyes = eyes;
     s_mouth = mouth;
+    s_now = t;
     return changed;
+}
+
+/* Draws the floating hearts and sparkles crossing screen row `y` over `row`. */
+static void draw_particles(uint16_t *row, int y, int x0, int x1)
+{
+    for (int i = 0; i < PARTICLES; i++) {
+        const particle_t *q = &s_parts[i];
+        float age = s_now - q->born;
+        if (!q->on || age < 0) continue;
+        const uint8_t *rows = q->kind == PART_HEART ? HEART : SPARKLE;
+        int n_rows = q->kind == PART_HEART ? 6 : 7;
+        float px = q->x + q->vx * age + (q->kind == PART_HEART ? 6.0f * sinf(TAU * 1.5f * age) : 0);
+        float py = q->y + q->vy * age;
+        int left = (int)px - 7 * SPRITE_SCALE / 2, top = (int)py - n_rows * SPRITE_SCALE / 2;
+        if (y < top) continue;
+        int r = (y - top) / SPRITE_SCALE;
+        if (r >= n_rows) continue;
+        bool fading = age > q->life * 0.7f;   /* fades out as a dither */
+        uint16_t c = q->kind == PART_HEART ? HEART_RGB565 : (r == n_rows / 2 ? 0xffff : SPARKLE_RGB565);
+        for (int col = 0; col < 7; col++) {
+            if (!(rows[r] & (0x40 >> col))) continue;
+            for (int k = 0; k < SPRITE_SCALE; k++) {
+                int x = left + col * SPRITE_SCALE + k;
+                if (x < x0 || x > x1 || (fading && ((x + y) & 1))) continue;
+                row[x - x0] = c;
+            }
+        }
+    }
 }
 
 static inline uint16_t dim(uint16_t c, int b)
@@ -262,6 +417,7 @@ void muse_photo_scale(uint16_t *dst, int stride_px, int x0, int x1, int y0, int 
         int32_t sy = fy_fp + (int32_t)((y - cy) * step_fp);
         if (sy < 0 || sy > max_fp) {
             memset(row, 0, (size_t)(x1 - x0 + 1) * sizeof(uint16_t));   /* moved past the picture: black */
+            if (s_floating) draw_particles(row, y, x0, x1);
             continue;
         }
         int iy = sy >> 16;
@@ -287,5 +443,6 @@ void muse_photo_scale(uint16_t *dst, int stride_px, int x0, int x1, int y0, int 
             }
             row[x - x0] = s_bright < 16 ? dim(px, s_bright) : px;
         }
+        if (s_floating) draw_particles(row, y, x0, x1);
     }
 }

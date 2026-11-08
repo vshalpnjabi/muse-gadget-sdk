@@ -62,6 +62,8 @@ float muse_voice_monitor_db(void);
 
 /* Plays a short chirp at the current volume (when idle). */
 void muse_voice_request_chirp(void);
+/* Plays a touch sound (MUSE_SFX_* in muse_audio.h) from the voice task, when idle. */
+void muse_voice_request_sound(int kind);
 
 /* Runs muse_audio_loopback_test() at the current volume (when idle); results go to the log. */
 void muse_voice_request_loopback(void);
