@@ -129,6 +129,7 @@ enum : uint32_t {
 struct call_ev_t {
     muse_voice_call_ev_t type;
     uint32_t gen;
+    uint32_t at;   /* s_out_in when it came (a reply caption's place in the audio) */
     char text[EV_TEXT];
 };
 
@@ -145,9 +146,14 @@ static std::atomic<uint32_t> s_talk_word{0};
 static std::atomic<uint32_t> s_flush_req{0}, s_flush_ack{0};
 static std::atomic<uint32_t> s_press_req{0}, s_press_ack{0}, s_press_clean{0};
 static std::atomic<uint32_t> s_status{0};
+/* Reply audio in and out of s_out, bytes, wrapping: a caption is stamped with
+ * what was in when its text came, and shown once that much is out. */
+static std::atomic<uint32_t> s_out_in{0}, s_out_out{0};
+static bool s_first_audio;   /* the call's first reply audio, for its timing log */
 static std::atomic<uint32_t> s_in_written{0};      /* bytes the voice task put in s_in */
 
 /* Voice task only. */
+static uint32_t v_event_at;   /* the last event's place in the reply audio */
 static bool v_call, v_ptt, v_talking, v_overflow;   /* v_call: a call, until its ENDED is read */
 static uint32_t v_press;             /* the last press number */
 static uint32_t v_press_told;        /* the press read() last reported as a flush */
@@ -243,6 +249,7 @@ static void emit(muse_voice_call_ev_t type, const char *text)
     call_ev_t ev = {};
     ev.type = type;
     ev.gen = s_call_gen;
+    ev.at = s_out_in.load();
     if (text) {
         strlcpy(ev.text, text, sizeof(ev.text));
     }
@@ -624,7 +631,7 @@ static bool ptt_playable(void)
 
 static void out_write(const int16_t *pcm, size_t n)
 {
-    xStreamBufferSend(s_out, pcm, n * sizeof(int16_t), 0);
+    s_out_in.fetch_add(xStreamBufferSend(s_out, pcm, n * sizeof(int16_t), 0));
     if (muse_vc_peak(pcm, n) >= MUSE_VC_AUDIBLE_PEAK) {
         s_st |= ST_REPLY_AUDIO;
     }
@@ -836,8 +843,12 @@ static void play(const muse_vc_event_t &ev, int64_t now)
         s_dropped_audio++;
         return;
     }
-    xStreamBufferSend(s_out, s_pcm, bytes, 0);
+    s_out_in.fetch_add(xStreamBufferSend(s_out, s_pcm, bytes, 0));
     s_frames_out++;
+    if (!s_first_audio) {
+        s_first_audio = true;
+        ESP_LOGI(TAG, "first reply audio %d ms after the call started", (int)((now - s_call.start_us) / 1000));
+    }
 }
 
 static void on_line(void *ctx, const char *line, size_t len)
@@ -1090,6 +1101,7 @@ static bool begin_call(uint32_t gen)
     s_drop = false;
     s_end_was_sent = s_end_final = false;
     s_bad_lines = s_bad_audio = s_dropped_audio = s_frames_out = 0;
+    s_first_audio = false;
     char path[96];
     snprintf(path, sizeof(path), "/voice/realtime?call_id=%s", id);
     s_media_id = muse_session_call_open(true, path, "application/x-ndjson; charset=utf-8", admission, false);
@@ -1369,7 +1381,9 @@ void muse_voice_call_disconnected(void)
 static void drain_out(void)
 {
     int16_t junk[128];
-    while (xStreamBufferReceive(s_out, junk, sizeof(junk), 0)) {
+    size_t got;
+    while ((got = xStreamBufferReceive(s_out, junk, sizeof(junk), 0)) != 0) {
+        s_out_out.fetch_add(got);
     }
 }
 
@@ -1512,7 +1526,9 @@ extern "C" size_t muse_voice_call_read(int16_t *pcm, size_t frames, bool *flushe
         v_press_told = press;
         return 0;
     }
-    return xStreamBufferReceive(s_out, pcm, frames * sizeof(int16_t), 0) / sizeof(int16_t);
+    size_t got = xStreamBufferReceive(s_out, pcm, frames * sizeof(int16_t), 0);
+    s_out_out.fetch_add(got);
+    return got / sizeof(int16_t);
 }
 
 extern "C" muse_voice_call_ev_t muse_voice_call_event(char *text, size_t cap)
@@ -1524,6 +1540,7 @@ extern "C" muse_voice_call_ev_t muse_voice_call_event(char *text, size_t cap)
                 v_call = v_ptt = v_talking = false;
             }
             strlcpy(text, ev.text, cap);
+            v_event_at = ev.at;
             return ev.type;
         }
     }
@@ -1562,4 +1579,14 @@ extern "C" void muse_voice_call_ptt_status(muse_voice_call_ptt_status_t *out)
     out->overflow = v_overflow;
     out->reply_lost = st & ST_REPLY_LOST;
     out->working = st & ST_WORKING;
+}
+
+extern "C" bool muse_voice_call_caption_due(void)
+{
+    /* Due once the audio that was in when its text came has played (and a
+     * moment more: the text runs a little ahead of its words), or straight
+     * away when nothing's left to play (a muted speaker, say). */
+    uint32_t out = s_out_out.load(), in = s_out_in.load();
+    const uint32_t lead = MUSE_VC_MIC_RATE * 2 / 5;   /* 0.2 s of 16 kHz PCM16 */
+    return (int32_t)(out - (v_event_at + lead)) >= 0 || out == in;
 }

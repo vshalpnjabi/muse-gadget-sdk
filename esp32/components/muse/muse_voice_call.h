@@ -95,6 +95,9 @@ bool muse_voice_call_audio(const int16_t *pcm, size_t frames);
 size_t muse_voice_call_read(int16_t *pcm, size_t frames, bool *flushed);
 /* Non-blocking; events of earlier calls are dropped. */
 muse_voice_call_ev_t muse_voice_call_event(char *text, size_t cap);
+/* Whether the last REPLY caption from muse_voice_call_event() is due on screen:
+ * its words' audio has reached the speaker. Voice task. */
+bool muse_voice_call_caption_due(void);
 
 /*
  * A push-to-talk call's state for the screen, read without locking (each

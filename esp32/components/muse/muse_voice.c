@@ -1045,6 +1045,7 @@ static void run_call(bool ptt, size_t waking_chunks)
     static int16_t out[MUSE_AUDIO_CHUNK];
     static const int16_t silence[MUSE_AUDIO_CHUNK];
     char text[96] = "";
+    char pending_reply[96] = "";   /* a reply caption waiting for its words to play */
     call_ui_t c = { .ptt = ptt, .held = ptt, .input_epoch = s_press_input_epoch };
     muse_vc_gate_init(&c.gate, false, ptt ? 0 : CALL_TAIL_US);
     bool ended = false;
@@ -1088,7 +1089,8 @@ static void run_call(bool ptt, size_t waking_chunks)
                 spoken_caption(true, text);
                 break;
             case MUSE_VOICE_CALL_EV_REPLY:
-                spoken_caption(false, text);
+                /* Held till its words play: the text comes ahead of the audio. */
+                strlcpy(pending_reply, text, sizeof(pending_reply));
                 break;
             case MUSE_VOICE_CALL_EV_HOLD:
                 c.server_hold = true;
@@ -1107,6 +1109,10 @@ static void run_call(bool ptt, size_t waking_chunks)
             if (ended) break;
         }
         if (ended) break;
+        if (pending_reply[0] && muse_voice_call_caption_due()) {
+            spoken_caption(false, pending_reply);
+            pending_reply[0] = '\0';
+        }
         muse_voice_call_ptt_status_t status = {0};
         if (ptt) {
             muse_voice_call_ptt_status(&status);
