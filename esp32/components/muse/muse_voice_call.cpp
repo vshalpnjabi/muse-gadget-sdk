@@ -149,7 +149,7 @@ static std::atomic<uint32_t> s_status{0};
 /* Reply audio in and out of s_out, bytes, wrapping: a caption is stamped with
  * what was in when its text came, and shown once that much is out. */
 static std::atomic<uint32_t> s_out_in{0}, s_out_out{0};
-static bool s_first_audio;   /* the call's first reply audio, for its timing log */
+static bool s_first_audio, s_first_voice;   /* the call's first reply audio, and first audible, for the timing log */
 static std::atomic<uint32_t> s_in_written{0};      /* bytes the voice task put in s_in */
 
 /* Voice task only. */
@@ -814,6 +814,11 @@ static void play(const muse_vc_event_t &ev, int64_t now)
     }
     if (audible) {
         muse_vc_call_activity(&s_call, now);
+        if (!s_first_voice) {
+            s_first_voice = true;
+            ESP_LOGI(TAG, "first audible reply %d ms after the call started (%d ms after it was live)",
+                     (int)((now - s_call.start_us) / 1000), (int)((now - s_call.live_us) / 1000));
+        }
     }
     size_t bytes = (size_t)n * sizeof(int16_t);
     if (!bytes) {
@@ -1101,7 +1106,7 @@ static bool begin_call(uint32_t gen)
     s_drop = false;
     s_end_was_sent = s_end_final = false;
     s_bad_lines = s_bad_audio = s_dropped_audio = s_frames_out = 0;
-    s_first_audio = false;
+    s_first_audio = s_first_voice = false;
     char path[96];
     snprintf(path, sizeof(path), "/voice/realtime?call_id=%s", id);
     s_media_id = muse_session_call_open(true, path, "application/x-ndjson; charset=utf-8", admission, false);
