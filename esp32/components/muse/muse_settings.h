@@ -48,6 +48,7 @@ typedef enum {
     MUSE_SETTING_HATCH,
     MUSE_SETTING_VOICE_NOTES,
     MUSE_SETTING_AVATAR,
+    MUSE_SETTING_CAPTIONS,
 } muse_setting_t;
 
 /* Which avatar the face shows (Settings > Appearance): the drawn pixel one
@@ -74,6 +75,11 @@ bool muse_settings_voice_notes(void);
 void muse_settings_set_voice_notes(bool on);
 int muse_settings_avatar(void);          /* MUSE_AVATAR_* */
 void muse_settings_set_avatar(int which);
+/* Settings > Appearance > Captions: what you said and Muse's replies as text on
+ * the face. Off, the face shows neither and Muse keeps its size; status
+ * captions (CONNECTING, PUSH TO TALK, errors) still show. On by default. */
+bool muse_settings_captions(void);
+void muse_settings_set_captions(bool on);
 
 void muse_settings_wifi(char ssid[MUSE_SSID_MAX + 1], char pass[MUSE_PASS_MAX + 1]);
 void muse_settings_hatch_host(char out[MUSE_HOST_MAX + 1]);

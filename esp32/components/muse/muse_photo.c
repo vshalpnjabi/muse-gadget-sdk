@@ -73,6 +73,61 @@ static float next_rand(void)
     return (x & 0xffff) / 65535.0f;
 }
 
+/* Idle life: every 6 to 12 s one small thing, glancing aside, looking
+ * around, a smile, a double blink, and once Muse has been quiet a minute, a
+ * yawn. Another mode drops it. */
+enum { ACT_NONE, ACT_GLANCE_L, ACT_GLANCE_R, ACT_LOOK_AROUND, ACT_SMILE, ACT_YAWN, ACT_COUNT };
+static int s_act;
+static float s_act_t0, s_act_len, s_next_act = 5.0f;
+
+static void idle_life(float t, float mt, float *dx, float *dy, muse_photo_part_t *eyes, muse_photo_part_t *mouth)
+{
+    if (s_act == ACT_NONE && t >= s_next_act) {
+        float r = next_rand();
+        s_act = r < 0.22f ? ACT_GLANCE_L : r < 0.44f ? ACT_GLANCE_R : r < 0.62f ? ACT_LOOK_AROUND
+              : r < 0.84f ? ACT_SMILE : mt > 60.0f ? ACT_YAWN : ACT_SMILE;
+        if (next_rand() < 0.2f) {
+            s_blink_at = t;   /* a double blink, before or over whatever comes */
+        }
+        static const float LEN[ACT_COUNT] = { 0, 1.4f, 1.4f, 3.0f, 2.5f, 2.4f };
+        s_act_t0 = t;
+        s_act_len = LEN[s_act];
+    }
+    if (s_act == ACT_NONE) {
+        return;
+    }
+    float a = t - s_act_t0;
+    if (a >= s_act_len) {
+        s_act = ACT_NONE;
+        s_next_act = t + 6.0f + 6.0f * next_rand();
+        return;
+    }
+    float ease = clampf(a / 0.25f, 0, 1) * clampf((s_act_len - a) / 0.25f, 0, 1);   /* in and out */
+    switch (s_act) {
+    case ACT_GLANCE_L:
+    case ACT_GLANCE_R:
+        *eyes = s_act == ACT_GLANCE_L ? MUSE_PHOTO_EYES_LEFT : MUSE_PHOTO_EYES_RIGHT;
+        *dx += (s_act == ACT_GLANCE_L ? -2.0f : 2.0f) * ease;   /* the head follows a little */
+        break;
+    case ACT_LOOK_AROUND: {
+        bool left = a < 1.3f, right = a > 1.7f;
+        *eyes = left ? MUSE_PHOTO_EYES_LEFT : right ? MUSE_PHOTO_EYES_RIGHT : MUSE_PHOTO_PATCH_NONE;
+        *dx += 2.5f * sinf(TAU * (a / s_act_len) - TAU / 4) * ease;   /* left, then right */
+        break;
+    }
+    case ACT_SMILE:
+        *mouth = MUSE_PHOTO_MOUTH_SMILE;
+        break;
+    case ACT_YAWN:
+        *mouth = MUSE_PHOTO_MOUTH_3;
+        if (a > 0.3f && a < s_act_len - 0.4f) *eyes = MUSE_PHOTO_EYES_CLOSED;
+        *dy -= 2.0f * ease;   /* a slight stretch */
+        break;
+    default:
+        break;
+    }
+}
+
 bool muse_photo_render(const muse_pose_t *p)
 {
     float t = p->t, mt = p->mode_t, lvl = clampf(p->level, 0, 1);
@@ -110,6 +165,13 @@ bool muse_photo_render(const muse_pose_t *p)
     if (p->happy > 0.01f) {
         dy -= 6.0f * p->happy * fabsf(sinf(TAU * 2.0f * t));   /* a bounce when petted */
     }
+    muse_photo_part_t idle_eyes = MUSE_PHOTO_PATCH_NONE, idle_mouth = MUSE_PHOTO_PATCH_NONE;
+    if (p->mode == MUSE_MODE_IDLE && !happy) {
+        idle_life(t, mt, &dx, &dy, &idle_eyes, &idle_mouth);
+    } else if (s_act != ACT_NONE || t > s_next_act) {
+        s_act = ACT_NONE;   /* busy: start over a little after it's idle again */
+        s_next_act = t + 4.0f;
+    }
 
     /* Eyes: happy beats a blink; asleep, they close. */
     if (t >= s_blink_at) {
@@ -121,6 +183,8 @@ bool muse_photo_render(const muse_pose_t *p)
         eyes = patch(MUSE_PHOTO_EYES_HAPPY);
     } else if (t < s_blink_end || (p->mode == MUSE_MODE_OFF && mt > 0.3f)) {
         eyes = patch(MUSE_PHOTO_EYES_CLOSED);
+    } else if (idle_eyes != MUSE_PHOTO_PATCH_NONE) {
+        eyes = patch(idle_eyes);
     }
     /* Mouth: open with the voice, a small smile when petted. */
     const muse_photo_patch_t *mouth = NULL;
@@ -129,6 +193,8 @@ bool muse_photo_render(const muse_pose_t *p)
               : lvl > 0.06f ? patch(MUSE_PHOTO_MOUTH_1) : NULL;
     } else if (happy) {
         mouth = patch(MUSE_PHOTO_MOUTH_1);
+    } else if (idle_mouth != MUSE_PHOTO_PATCH_NONE) {
+        mouth = patch(idle_mouth);
     }
 
     int z = (int)lroundf(zoom * 1024), x2 = (int)lroundf(dx * 2), y2 = (int)lroundf(dy * 2);

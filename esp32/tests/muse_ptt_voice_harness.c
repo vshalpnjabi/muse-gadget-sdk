@@ -108,6 +108,7 @@ bool muse_state_asleep(void) { return sleep_state; }
 bool muse_state_on_battery(void) { return false; }
 void muse_state_wait_awake(uint32_t ms) { vTaskDelay(ms); }
 bool muse_settings_voice_notes(void) { return notes_mode; }
+bool muse_settings_captions(void) { return true; }   /* captions on, as before the setting */
 int muse_settings_volume(void) { return 20; }
 int muse_settings_mic_gain(void) { return 30; }
 bool muse_wifi_connected(void) { return ready; }

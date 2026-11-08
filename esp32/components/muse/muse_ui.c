@@ -1979,6 +1979,12 @@ static void update_status(muse_mode_t mode, float now)
 #if CONFIG_MUSE_UI_HIDE_READY
         if (name == MODE_NAMES[MUSE_MODE_IDLE]) shown = "";   /* nothing to say when all is well */
 #endif
+#if CONFIG_MUSE_UI_HIDE_MODE_NAMES
+        if (name == MODE_NAMES[MUSE_MODE_LISTENING] || name == MODE_NAMES[MUSE_MODE_THINKING] ||
+            name == MODE_NAMES[MUSE_MODE_SPEAKING] || !strcmp(name, "WORKING")) {
+            shown = "";   /* the face shows what Muse is doing */
+        }
+#endif
         lv_obj_set_style_text_font(s_state_lbl, muse_lang_label_font(shown, s_small ? &lv_font_unscii_8 : &lv_font_unscii_16), 0);
         lv_label_set_text(s_state_lbl, shown);
         s_shown_name = name;
@@ -2070,8 +2076,8 @@ static void update_status(muse_mode_t mode, float now)
             view.stale = true;   /* a page wrapped for the old layout is wrapped again */
 #endif
         }
-        if (mode == MUSE_MODE_THINKING || mode == MUSE_MODE_SPEAKING) {
-            answer = layout;
+        if ((mode == MUSE_MODE_THINKING || mode == MUSE_MODE_SPEAKING) && muse_settings_captions()) {
+            answer = layout;   /* captions off: no reply to make room for, so Muse keeps its size */
         }
 #if CONFIG_MUSE_BOARD_SENSECAP_WATCHER
         bool review_changed;

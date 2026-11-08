@@ -67,6 +67,7 @@ static atomic_int s_avatar = MUSE_AVATAR_PHOTO;
 #else
 static atomic_int s_avatar = MUSE_AVATAR_PIXEL;
 #endif
+static atomic_bool s_captions = true;
 static nvs_handle_t s_nvs;
 static muse_setting_cb_t s_listener;
 
@@ -136,6 +137,9 @@ esp_err_t muse_settings_init(void)
         atomic_store(&s_voice_notes, b != 0);
     }
 #endif
+    if (nvs_get_u8(s_nvs, "captions", &b) == ESP_OK) {
+        atomic_store(&s_captions, b != 0);
+    }
 #if MUSE_HAS_PHOTO_AVATAR
     if (nvs_get_u8(s_nvs, "avatar", &b) == ESP_OK && b < MUSE_AVATAR_COUNT) {
         atomic_store(&s_avatar, b);
@@ -186,6 +190,15 @@ void muse_settings_set_voice_notes(bool on)
     atomic_store(&s_voice_notes, on);
     save_u8("voice_notes", on);
     notify(MUSE_SETTING_VOICE_NOTES);
+}
+
+bool muse_settings_captions(void) { return atomic_load(&s_captions); }
+
+void muse_settings_set_captions(bool on)
+{
+    atomic_store(&s_captions, on);
+    save_u8("captions", on);
+    notify(MUSE_SETTING_CAPTIONS);
 }
 
 int muse_settings_avatar(void) { return atomic_load(&s_avatar); }

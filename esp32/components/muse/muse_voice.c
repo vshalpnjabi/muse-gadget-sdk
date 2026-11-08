@@ -71,6 +71,20 @@ static const char *TAG = "muse_voice";
 #endif
 #define REST_BACKSTOP_MS 60000
 
+/* What you said, or Muse's reply, as the caption: only with Settings >
+ * Appearance > Captions on. Off, the caption is cleared, so the face neither
+ * shows it nor makes room for it. Status captions don't come through here. */
+static void spoken_caption(bool quoted, const char *text)
+{
+    if (!muse_settings_captions()) {
+        muse_state_set_caption("%s", "");
+    } else if (quoted) {
+        muse_state_set_caption("\"%s\"", text);   /* what you said */
+    } else {
+        muse_state_set_caption("%s", text);
+    }
+}
+
 #if CONFIG_MUSE_HATCH
 /* A note recorded while Hatch is out of reach is saved in PSRAM, and goes once it's back. */
 #define HOLD_NOTES 1
@@ -378,7 +392,7 @@ static bool record(bool barge_in, size_t *held, char *why, size_t cap)
         while (s_live && (ev = muse_hatch_turn_event(text, sizeof(text))) != MUSE_HATCH_EV_NONE) {
             if (ev == MUSE_HATCH_EV_HEARD && text[0]) {
                 heard = true;
-                muse_state_set_caption("%s", text);
+                spoken_caption(false, text);
             } else if (ev == MUSE_HATCH_EV_ERROR) {
                 ESP_LOGW(TAG, "muse: %s", text);
                 muse_hatch_turn_cancel();
@@ -453,7 +467,7 @@ static bool hatch_reply(bool *delivered)
             switch (ev) {
             case MUSE_HATCH_EV_HEARD:
                 if (!speaking && !replied) {
-                    muse_state_set_caption("\"%s\"", text);
+                    spoken_caption(true, text);
                 }
                 break;
             case MUSE_HATCH_EV_SENT:
@@ -467,7 +481,7 @@ static bool hatch_reply(bool *delivered)
                 /* Once speech starts, the caption follows it. The event only
                  * has room for the page's start; the page itself comes below. */
                 if (!speaking && !muse_hatch_turn_caption(played, page, sizeof(page))) {
-                    muse_state_set_caption("%s", text);
+                    spoken_caption(false, text);
                 }
                 break;
             case MUSE_HATCH_EV_DONE:
@@ -508,7 +522,7 @@ static bool hatch_reply(bool *delivered)
         }
         /* The page being said, or before the speech the reply's opening page. */
         if ((speaking || replied) && muse_hatch_turn_caption(played, page, sizeof(page))) {
-            muse_state_set_caption("%s", page);
+            spoken_caption(false, page);
         }
     }
     muse_state_set_level(0);
@@ -1070,10 +1084,10 @@ static void run_call(bool ptt, size_t waking_chunks)
                 muse_state_set_caption(ptt ? PTT_READY_CAPTION : "IN A CALL - PRESS TO HANG UP");
                 break;
             case MUSE_VOICE_CALL_EV_HEARD:
-                muse_state_set_caption("\"%s\"", text);
+                spoken_caption(true, text);
                 break;
             case MUSE_VOICE_CALL_EV_REPLY:
-                muse_state_set_caption("%s", text);
+                spoken_caption(false, text);
                 break;
             case MUSE_VOICE_CALL_EV_HOLD:
                 c.server_hold = true;

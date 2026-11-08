@@ -465,6 +465,14 @@ menu "Muse"
             mode and a recording's or reply's progress. The face, its labels
             and captions are unchanged.
 
+    config MUSE_UI_HIDE_MODE_NAMES
+        bool "Leave the status line blank while Muse listens, thinks or talks"
+        default n
+        help
+            The face's status line shows nothing in place of LISTENING,
+            THINKING, WORKING and SPEAKING: the avatar shows what Muse is
+            doing. Errors and Wi-Fi trouble still show there.
+
     config MUSE_UI_BATTERY_PERCENT_ONLY
         bool "Show the battery as a bare percentage"
         default n

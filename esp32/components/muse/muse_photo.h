@@ -43,6 +43,9 @@ typedef enum {
     MUSE_PHOTO_MOUTH_1,       /* open, small to wide, with Muse's voice */
     MUSE_PHOTO_MOUTH_2,
     MUSE_PHOTO_MOUTH_3,
+    MUSE_PHOTO_EYES_LEFT,     /* idle glances, as you look at the screen */
+    MUSE_PHOTO_EYES_RIGHT,
+    MUSE_PHOTO_MOUTH_SMILE,   /* an idle smile */
 } muse_photo_part_t;
 
 typedef struct {

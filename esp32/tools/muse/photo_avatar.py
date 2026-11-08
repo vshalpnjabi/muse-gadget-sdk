@@ -153,7 +153,8 @@ def _darkest(im, box):
 def face_patches(im, eyes, eye_size, mouth):
     """The face's moving parts, drawn from the picture's own colours, as
     (x, y, w, h, image) patches the board swaps in: eyes closed, eyes happy
-    (closed in an upward curve), and the mouth open small, medium and wide.
+    (closed in an upward curve), glancing left and right, the mouth open small,
+    medium and wide, and a smile.
     Order matters: muse_photo.c names them by index."""
     from PIL import ImageDraw
     out = []
@@ -176,6 +177,22 @@ def face_patches(im, eyes, eye_size, mouth):
                     pts.append((ex + k, ey + 1 + curve * 3.5 * (1 - t * t) - (2 if curve < 0 else 0)))
                 d.line(pts, fill=lash, width=2)
             out.append((x0, y0, p))
+        # Glances: the irises shifted inside the eye, the white filling in behind them.
+        for dirn in (-1, 1):   # left, right (as you look at the screen)
+            p = im.crop((x0, y0, x1, y1)).copy()
+            src = im.crop((x0, y0, x1, y1))
+            for cx, cy in ((lx, ly), (rx_, ry_)):
+                ex, ey = cx - x0, cy - y0
+                irx, iry = max(rx - 4, 3), max(ry - 2, 3)
+                white = max((src.getpixel((ex + k, ey)) for k in range(-rx + 2, rx - 1)), key=sum)
+                for yy in range(ey - iry, ey + iry + 1):
+                    for xx in range(ex - irx, ex + irx + 1):
+                        if ((xx - ex) / irx) ** 2 + ((yy - ey) / iry) ** 2 > 1:
+                            continue
+                        sx = xx - dirn * 3
+                        inside = ((sx - ex) / irx) ** 2 + ((yy - ey) / iry) ** 2 <= 1
+                        p.putpixel((xx, yy), src.getpixel((sx, yy)) if inside else white)
+            out.append((x0, y0, p))
     if mouth:
         mx, my = mouth
         x0, y0, x1, y1 = mx - 18, my - 8, mx + 19, my + 12
@@ -189,6 +206,14 @@ def face_patches(im, eyes, eye_size, mouth):
             if h2 >= 4:   # a tongue in the lower half
                 d.ellipse((ex - w2 + 3, ey, ex + w2 - 3, ey + h2 - 1), fill=(205, 105, 100))
             out.append((x0, y0, p))
+    if mouth:
+        # A smile: a wider curve over the picture's own, in its lip colour.
+        p = im.crop((x0, y0, x1, y1)).copy()
+        d = ImageDraw.Draw(p)
+        ex, ey = mx - x0, my - y0
+        pts = [(ex + k, ey - 2 + 5.0 * (1 - (k / 17.0) ** 2)) for k in range(-17, 18)]
+        d.line(pts, fill=lip, width=2)
+        out.append((x0, y0, p))
     return [(x, y, p.size[0], p.size[1], p) for x, y, p in out]
 
 
@@ -281,9 +306,11 @@ def main():
         f.write("\n};\n\n")
         for k, (x, y, w, h, p) in enumerate(patches):
             f.write(_c_array(f"patch{k}", _rgb565(p)))
-        f.write("\n/* eyes closed, eyes happy, mouth open small/medium/wide (muse_photo.h) */\n")
-        kinds = (["MUSE_PHOTO_EYES_CLOSED", "MUSE_PHOTO_EYES_HAPPY"] if eyes else []) + \
-                (["MUSE_PHOTO_MOUTH_1", "MUSE_PHOTO_MOUTH_2", "MUSE_PHOTO_MOUTH_3"] if mouth else [])
+        f.write("\n/* the face's moving parts (muse_photo.h) */\n")
+        kinds = (["MUSE_PHOTO_EYES_CLOSED", "MUSE_PHOTO_EYES_HAPPY", "MUSE_PHOTO_EYES_LEFT",
+                  "MUSE_PHOTO_EYES_RIGHT"] if eyes else []) + \
+                (["MUSE_PHOTO_MOUTH_1", "MUSE_PHOTO_MOUTH_2", "MUSE_PHOTO_MOUTH_3",
+                  "MUSE_PHOTO_MOUTH_SMILE"] if mouth else [])
         f.write("const muse_photo_patch_t muse_photo_patches[] = {\n")
         for k, ((x, y, w, h, p), kind) in enumerate(zip(patches, kinds)):
             f.write(f"    {{ {kind}, {x}, {y}, {w}, {h}, patch{k} }},\n")

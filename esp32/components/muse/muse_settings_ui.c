@@ -1423,29 +1423,42 @@ static void tick_sleep(void)
 
 /* ---------- Appearance ---------- */
 
+static lv_obj_t *s_home_appearance;
+static lv_obj_t *s_captions_sw;
 #if MUSE_HAS_PHOTO_AVATAR
 static const char *const AVATAR_NAMES[MUSE_AVATAR_COUNT] = { "Pixel art", "Muse app picture" };
-static lv_obj_t *s_home_appearance;
 static lv_obj_t *s_avatar_checks[MUSE_AVATAR_COUNT];
+#endif
 
 static void tick_appearance(void)
 {
+#if MUSE_HAS_PHOTO_AVATAR
     int cur = muse_settings_avatar();
     for (int i = 0; i < MUSE_AVATAR_COUNT; i++) {
         set_text(s_avatar_checks[i], i == cur ? LV_SYMBOL_OK : "");
     }
+#endif
+    lv_obj_set_state(s_captions_sw, LV_STATE_CHECKED, muse_settings_captions());
 }
 
+#if MUSE_HAS_PHOTO_AVATAR
 static void on_avatar_choice(lv_event_t *e)
 {
     muse_settings_set_avatar((int)(intptr_t)lv_event_get_user_data(e));
     tick_appearance();
+}
+#endif
+
+static void on_captions_sw(lv_event_t *e)
+{
+    muse_settings_set_captions(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
 }
 
 static void build_appearance_page(lv_obj_t *tile)
 {
     lv_obj_t *list;
     s_appearance = page(tile, "APPEARANCE", true, &list);
+#if MUSE_HAS_PHOTO_AVATAR
     note(list, "Avatar on the face:");
     for (int i = 0; i < MUSE_AVATAR_COUNT; i++) {
         row(list, NULL, AVATAR_NAMES[i], &s_avatar_checks[i], on_avatar_choice, (void *)(intptr_t)i);
@@ -1453,8 +1466,12 @@ static void build_appearance_page(lv_obj_t *tile)
     }
     note(list, "Pixel art is drawn by your Muse; the picture is the one in the Muse app, "
                "brought to life by the board.");
-}
 #endif
+    s_captions_sw = switch_row(list, "Captions", muse_settings_captions(), on_captions_sw);
+    note(list, "What you said and Muse's replies as text. Off, Muse keeps its size on the face; "
+               "status messages still show.");
+    tick_appearance();
+}
 
 /* ---------- Battery ---------- */
 
@@ -1603,9 +1620,7 @@ static const page_t SOUND = { &s_sound, build_sound_page };
 static const page_t SLEEP = { &s_sleep, build_sleep_page };
 static const page_t BATTERY = { &s_battery, build_battery_page };
 static const page_t POWER = { &s_power, build_power_page };
-#if MUSE_HAS_PHOTO_AVATAR
 static const page_t APPEARANCE = { &s_appearance, build_appearance_page };
-#endif
 
 #if CONFIG_MUSE_VIDEO
 /* Phone camera: the video view, which asks the phone for a stream. */
@@ -1628,9 +1643,9 @@ static void build_home(lv_obj_t *tile)
     } else {
         row(list, LV_SYMBOL_VOLUME_MAX, "Sound", &s_home_sound, on_nav, (void *)&SOUND);
     }
-#if MUSE_HAS_PHOTO_AVATAR
-    row(list, LV_SYMBOL_IMAGE, "Appearance", &s_home_appearance, on_nav, (void *)&APPEARANCE);
-#endif
+    if (!screen_only()) {   /* captions need a voice; the picture is optional */
+        row(list, LV_SYMBOL_IMAGE, "Appearance", &s_home_appearance, on_nav, (void *)&APPEARANCE);
+    }
     row(list, LV_SYMBOL_EYE_CLOSE, "Sleep", &s_home_sleep, on_nav, (void *)&SLEEP);
     row(list, LV_SYMBOL_BATTERY_FULL, "Battery", &s_home_battery, on_nav, (void *)&BATTERY);
 #if CONFIG_MUSE_VIDEO
@@ -1669,9 +1684,13 @@ static void tick_home(void)
         set_text(s_home_sound, "Muted");
     }
     set_text(s_home_sleep, sleep_name(muse_settings_sleep_s()));
+    if (s_home_appearance) {   /* not on a screen-only board */
 #if MUSE_HAS_PHOTO_AVATAR
-    set_text(s_home_appearance, muse_settings_avatar() == MUSE_AVATAR_PHOTO ? "Picture" : "Pixel art");
+        set_text(s_home_appearance, muse_settings_avatar() == MUSE_AVATAR_PHOTO ? "Picture" : "Pixel art");
+#else
+        set_text(s_home_appearance, muse_settings_captions() ? "Captions on" : "Captions off");
 #endif
+    }
 
     muse_power_t p = muse_state_power();
     char buf[96];
@@ -1771,10 +1790,8 @@ void muse_settings_ui_tick(bool visible)
         tick_sleep();
     } else if (s_current == s_battery) {
         tick_battery();
-#if MUSE_HAS_PHOTO_AVATAR
     } else if (s_current == s_appearance) {
         tick_appearance();
-#endif
     }
 }
 
