@@ -561,6 +561,21 @@ void muse_audio_sfx(int kind)
     }
 }
 
+void muse_audio_bye(void)
+{
+    enum { MS = 70, N = MUSE_AUDIO_RATE * MS / 1000 };
+    static int16_t buf[N];
+    float phase = 0;
+    for (int i = 0; i < N; i++) {
+        float x = (float)i / N;
+        float f = 620.0f + (440.0f - 620.0f) * x;   /* a gentle step down */
+        phase += 2.0f * (float)M_PI * f / MUSE_AUDIO_RATE;
+        float env = (x < 0.15f ? x / 0.15f : 1.0f) * (1.0f - x);
+        buf[i] = (int16_t)(sinf(phase) * env * 2600.0f);   /* pure tone, about a third as loud */
+    }
+    muse_audio_write(buf, N);
+}
+
 void muse_audio_chirp(int rising)
 {
     enum { MS = 90, N = MUSE_AUDIO_RATE * MS / 1000 };

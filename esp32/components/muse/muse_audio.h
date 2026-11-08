@@ -67,6 +67,8 @@ float muse_audio_level(const int16_t *mono, size_t frames);
 
 /* Short UI chirp: rising for "go", falling for "done". */
 void muse_audio_chirp(int rising);
+/* A soft, low blip: a call has ended (subtler than the chirp). Blocking, ~70 ms. */
+void muse_audio_bye(void);
 
 /* Little sounds for touching Muse (blocking, the voice task plays them). */
 enum {

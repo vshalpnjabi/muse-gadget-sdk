@@ -367,6 +367,16 @@ static void ready_beep(void)
     muse_audio_chirp(1);
 }
 
+/* The call's over: a softer blip than the ready beep, same conditions. */
+static void bye_beep(void)
+{
+    if (!muse_settings_speaker_on()) return;
+#if CONFIG_MUSE_CLOCK
+    if (muse_clock_quiet()) return;
+#endif
+    muse_audio_bye();
+}
+
 static bool record(bool barge_in, size_t *held, char *why, size_t cap)
 {
     muse_state_set_mode(MUSE_MODE_LISTENING);
@@ -1117,7 +1127,7 @@ static void run_call(bool ptt, size_t waking_chunks)
     }
     muse_state_set_level(0);
     muse_state_set_progress(0);
-    muse_state_set_caption("CONNECTING TO MUSE...");
+    muse_state_set_caption("CONNECTING...");
     if (ptt) {
         muse_voice_call_start_ptt();
         /* These were captured while this waking press was held. Enqueue
@@ -1144,7 +1154,7 @@ static void run_call(bool ptt, size_t waking_chunks)
             switch (ev) {
             case MUSE_VOICE_CALL_EV_READY:
                 c.live = true;
-                muse_state_set_caption(ptt ? PTT_READY_CAPTION : "IN A CALL - PRESS TO HANG UP");
+                muse_state_set_caption(ptt ? PTT_READY_CAPTION : "IN CALL");
                 ready_beep();   /* the call's live: talk now */
                 break;
             case MUSE_VOICE_CALL_EV_HEARD:
@@ -1291,6 +1301,7 @@ static void run_call(bool ptt, size_t waking_chunks)
     muse_state_set_level(0);
     s_monitor_db = -100.0f;
     if (!atomic_load(&s_shutdown)) {
+        bye_beep();
         const char *why = ended && text[0] ? text : "CALL ENDED";
         if (!strncmp(why, "CALL ENDED", 10)) {
             /* An ordinary ending (hung up, all quiet, Muse said goodbye) only
