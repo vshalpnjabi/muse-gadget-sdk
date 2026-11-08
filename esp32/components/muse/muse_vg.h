@@ -23,7 +23,7 @@
 /*
  * Voice guard, shadow mode (CONFIG_MUSE_VOICE_GUARD): a copy of the mic PCM
  * that goes to Muse is kept (the last ~4 s), and while a call or voice note is
- * on, every 1.5 s its last 3 s go to a speaker-verification service whose
+ * on, every 0.5 s its last 3 s go to a speaker-verification service whose
  * verdict is logged and shown as a dot. Nothing about the Muse audio changes:
  * the verdict is only displayed.
  */
@@ -36,6 +36,9 @@ void muse_vg_start(void);
 
 /* Whether it's on (a token set and the worker started): the face shows its dot. */
 bool muse_vg_running(void);
+
+/* Counts verdicts as they come: the dot blinks on each. */
+uint32_t muse_vg_seq(void);
 
 /* The latest verdict, for the face's dot: false if none has come (grey). */
 bool muse_vg_latest(float *score, bool *accept);

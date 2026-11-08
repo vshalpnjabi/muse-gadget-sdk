@@ -18,7 +18,7 @@
  * Voice guard in shadow mode (muse_vg.h). The tee only copies: if the worker
  * holds the ring at that moment, the piece is left out of the copy rather
  * than the voice task waiting, so the Muse audio is never delayed. The worker
- * posts the last 3 s every 1.5 s while a call or voice note is on and polls
+ * posts the last 3 s every 0.5 s while a call or voice note is on and polls
  * each window's verdict every 0.5 s (up to 10 s), home base first, the HTTPS
  * one (CA-bundle validated) if home fails. The verdict is logged and shown;
  * nothing acts on it.
@@ -52,7 +52,9 @@ static const char *TAG = "muse_vg";
 #define RATE 16000
 #define RING_SAMPLES (RATE * 4)        /* the last ~4 s */
 #define WINDOW_SAMPLES (RATE * 3)      /* what each window sends */
-#define POST_EVERY_US 1500000LL
+#define STEP_SAMPLES (RATE / 2)        /* a window every 0.5 s of new audio */
+#define POST_EVERY_US 500000LL
+#define REJECTS_TO_RED 4               /* in a row: a green dot holds through a stray one */
 #define POLL_EVERY_US 500000LL
 #define VERDICT_WAIT_US 10000000LL
 #define HOME_TIMEOUT_MS 1500
@@ -75,6 +77,7 @@ static SemaphoreHandle_t s_ring_lock;
 
 /* The latest verdict, for the face. */
 static atomic_bool s_running, s_have, s_accept;
+static atomic_uint s_seq;   /* verdicts so far */
 static _Atomic float s_score;
 
 typedef struct {
@@ -90,6 +93,7 @@ static esp_http_client_handle_t s_cli[2];
 static char s_resp[RESP_MAX];
 static size_t s_resp_len;
 static int64_t s_home_down_until;
+static int s_rejects;   /* in a row */
 static int64_t s_muse_spoke_us = -MUSE_ECHO_US;   /* last seen speaking */
 
 void muse_vg_tee(const int16_t *pcm, size_t frames)
@@ -106,6 +110,11 @@ void muse_vg_tee(const int16_t *pcm, size_t frames)
         frames -= n;
     }
     xSemaphoreGive(s_ring_lock);
+}
+
+uint32_t muse_vg_seq(void)
+{
+    return atomic_load(&s_seq);
 }
 
 bool muse_vg_running(void)
@@ -206,11 +215,16 @@ static bool parse_id(char *out, size_t cap)
 static bool parse_verdict(float *score, bool *accept)
 {
     cJSON *root = cJSON_Parse(s_resp);
-    const cJSON *a = root ? cJSON_GetObjectItemCaseSensitive(root, "accept") : NULL;
+    const cJSON *v = root;
+    const cJSON *nested = root ? cJSON_GetObjectItemCaseSensitive(root, "verdict") : NULL;
+    if (cJSON_IsObject(nested)) {
+        v = nested;   /* the window's reply carries it when it's ready at once */
+    }
+    const cJSON *a = v ? cJSON_GetObjectItemCaseSensitive(v, "accept") : NULL;
     bool done = false;
     if (cJSON_IsBool(a) || cJSON_IsNumber(a)) {
         *accept = cJSON_IsBool(a) ? cJSON_IsTrue(a) : a->valuedouble != 0;
-        const cJSON *s = cJSON_GetObjectItemCaseSensitive(root, "score");
+        const cJSON *s = cJSON_GetObjectItemCaseSensitive(v, "score");
         *score = cJSON_IsNumber(s) ? (float)s->valuedouble : 0.0f;
         done = true;
     }
@@ -218,7 +232,6 @@ static bool parse_verdict(float *score, bool *accept)
     return done;
 }
 
-/* Posts the last 3 s; on the home base unless it failed lately, then the HTTPS one. */
 /* How much of the window is speech, in ms, and its loud end in dBFS: slices
  * well over the window's own quiet (its 20th percentile) and over a floor. */
 static int speech_ms(const int16_t *win, float *peak_db)
@@ -253,6 +266,25 @@ static int speech_ms(const int16_t *win, float *peak_db)
     return voiced * SLICE * 1000 / RATE;
 }
 
+/* Logs a verdict and moves the dot: an accept turns it green at once; a
+ * reject turns it red only after REJECTS_TO_RED in a row (or with no green to
+ * hold), so one miss on the caller's own voice doesn't flicker it. Quiet and
+ * Muse's voice leave it as it is. */
+static void show_verdict(const char *id, float score, bool accept, int rtt, int ms)
+{
+    s_rejects = accept ? 0 : s_rejects + 1;
+    bool have = atomic_load(&s_have);
+    if (accept || !have || s_rejects >= REJECTS_TO_RED) {
+        atomic_store(&s_score, score);
+        atomic_store(&s_accept, accept);
+        atomic_store(&s_have, true);
+    }
+    atomic_fetch_add(&s_seq, 1);
+    ESP_LOGI(TAG, "VG window id=%s score=%.3f accept=%d rtt_ms=%d speech_ms=%d dot=%s", id, score, accept, rtt, ms,
+             atomic_load(&s_accept) ? "green" : "red");
+}
+
+/* Posts the last 3 s; on the home base unless it failed lately, then the HTTPS one. */
 static void post_window(int16_t *win, int64_t now)
 {
     if (xSemaphoreTake(s_ring_lock, pdMS_TO_TICKS(50)) != pdTRUE) {
@@ -270,8 +302,7 @@ static void post_window(int16_t *win, int64_t now)
     const char *skip = now - s_muse_spoke_us < MUSE_ECHO_US ? "muse speaking" : ms < SPEECH_MIN_MS ? "quiet" : NULL;
     if (skip) {
         ESP_LOGI(TAG, "VG window skipped (%s) speech_ms=%d peak=%.0fdB", skip, ms, peak_db);
-        atomic_store(&s_have, false);
-        return;
+        return;   /* the dot stays as it is */
     }
 
     static char path[96];
@@ -287,6 +318,12 @@ static void post_window(int16_t *win, int64_t now)
     if (status < 200 || status >= 300 || !parse_id(id, sizeof(id))) {
         ESP_LOGW(TAG, "VG window post failed (%s, HTTP %d)", base ? "away" : "home", status);
         return;
+    }
+    float score = 0;
+    bool accept = false;
+    if (parse_verdict(&score, &accept)) {
+        show_verdict(id, score, accept, (int)((esp_timer_get_time() - now) / 1000), ms);
+        return;   /* ready with the reply: no polling */
     }
     for (int i = 0; i < PENDING_MAX; i++) {
         if (!s_pending[i].on) {
@@ -308,8 +345,7 @@ static void poll_verdicts(int64_t now)
         }
         if (now - p->posted_us > VERDICT_WAIT_US) {
             ESP_LOGI(TAG, "VG window id=%s no verdict after %d ms", p->id, (int)((now - p->posted_us) / 1000));
-            atomic_store(&s_have, false);   /* grey: no verdict came */
-            p->on = false;
+            p->on = false;   /* the dot stays as it is */
             continue;
         }
         char path[80];
@@ -319,11 +355,7 @@ static void poll_verdicts(int64_t now)
         bool accept = false;
         if (status >= 200 && status < 300 && parse_verdict(&score, &accept)) {
             int rtt = (int)((esp_timer_get_time() - p->posted_us) / 1000);
-            ESP_LOGI(TAG, "VG window id=%s score=%.3f accept=%d rtt_ms=%d speech_ms=%d", p->id, score, accept, rtt,
-                     p->speech_ms);
-            atomic_store(&s_score, score);
-            atomic_store(&s_accept, accept);
-            atomic_store(&s_have, true);
+            show_verdict(p->id, score, accept, rtt, p->speech_ms);
             p->on = false;
         } else {
             p->next_poll_us = now + POLL_EVERY_US;
@@ -358,16 +390,18 @@ static void vg_task(void *arg)
             s_muse_spoke_us = now;
         }
         if (on && !was_active) {
+            atomic_store(&s_have, false);   /* a new call starts grey */
+            s_rejects = 0;
             /* A new session: the ring still holds the last one's audio, so the
              * first window waits for 3 s of this one's. */
-            posted_at = s_written + (WINDOW_SAMPLES - RATE * 3 / 2);
+            posted_at = s_written + (WINDOW_SAMPLES - STEP_SAMPLES);
         }
         was_active = on;
         if (!on || !muse_wifi_connected() || now < next_post) {
             continue;
         }
-        /* Only once 1.5 s of new audio has come in since the last window. */
-        if ((int32_t)(s_written - posted_at) < RATE * 3 / 2) {
+        /* Only once 0.5 s of new audio has come in since the last window. */
+        if ((int32_t)(s_written - posted_at) < STEP_SAMPLES) {
             continue;
         }
         posted_at = s_written;

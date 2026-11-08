@@ -474,7 +474,7 @@ menu "Muse"
         default y
         help
             Keeps a copy of the last ~4 s of the mic audio sent to Muse and,
-            during a call or voice note, sends its last 3 s every 1.5 s to a
+            during a call or voice note, sends its last 3 s every 0.5 s to a
             speaker-verification service, logging each verdict and showing it
             as a small dot (green: the speaker, red: not, grey: no verdict).
             Shadow mode: the verdict never changes what Muse hears. Does

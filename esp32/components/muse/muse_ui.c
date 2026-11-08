@@ -1987,6 +1987,38 @@ static void set_meter_visible(bool visible)
     s_shown_lit = -1;
 }
 
+#if CONFIG_MUSE_VOICE_GUARD
+/* The voice guard's dot: every tick, so its blink on each verdict shows. */
+static void update_vg(void)
+{
+    if (muse_vg_running()) {
+        float score;
+        bool accept;
+        bool have = muse_vg_latest(&score, &accept);
+        char vg[8] = "";
+        if (have) {
+            snprintf(vg, sizeof(vg), "%.2f", score);
+        }
+        lv_obj_remove_flag(s_vg_dot, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_bg_color(s_vg_dot, lv_color_hex(!have ? 0x808080 : accept ? 0x34C759 : 0xFF3B30), 0);
+        /* A blink on each verdict, so every window shows as it lands. */
+        static uint32_t seen, blink_until;
+        uint32_t seq = muse_vg_seq(), ms = lv_tick_get();
+        if (seq != seen) {
+            seen = seq;
+            blink_until = ms + 200;
+        }
+        lv_opa_t opa = (int32_t)(blink_until - ms) > 0 ? LV_OPA_20 : LV_OPA_COVER;
+        if (lv_obj_get_style_bg_opa(s_vg_dot, 0) != opa) {
+            lv_obj_set_style_bg_opa(s_vg_dot, opa, 0);
+        }
+        if (strcmp(vg, lv_label_get_text(s_vg_lbl))) {
+            lv_label_set_text(s_vg_lbl, vg);
+        }
+    }
+}
+#endif
+
 static void update_power(float now)
 {
     if (now < s_next_power_update) {
@@ -2024,22 +2056,6 @@ static void update_power(float now)
     const char *dnd = muse_clock_quiet() ? "DND" : "";
     if (strcmp(dnd, lv_label_get_text(s_dnd_lbl))) {
         lv_label_set_text(s_dnd_lbl, dnd);
-    }
-#endif
-#if CONFIG_MUSE_VOICE_GUARD
-    if (muse_vg_running()) {
-        float score;
-        bool accept;
-        bool have = muse_vg_latest(&score, &accept);
-        char vg[8] = "";
-        if (have) {
-            snprintf(vg, sizeof(vg), "%.2f", score);
-        }
-        lv_obj_remove_flag(s_vg_dot, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_style_bg_color(s_vg_dot, lv_color_hex(!have ? 0x808080 : accept ? 0x34C759 : 0xFF3B30), 0);
-        if (strcmp(vg, lv_label_get_text(s_vg_lbl))) {
-            lv_label_set_text(s_vg_lbl, vg);
-        }
     }
 #endif
     muse_power_t p = muse_state_power();
@@ -2290,6 +2306,9 @@ static void update_status(muse_mode_t mode, float now)
         apply_text_size();
         set_full_reply(s_caption_shown && (mode == MUSE_MODE_THINKING || mode == MUSE_MODE_SPEAKING));
     }
+#endif
+#if CONFIG_MUSE_VOICE_GUARD
+    update_vg();
 #endif
     update_power(now);
 }
