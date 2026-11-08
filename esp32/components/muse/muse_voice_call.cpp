@@ -55,6 +55,7 @@
 #include <cstring>
 #include <sys/time.h>
 
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_random.h"
@@ -1059,7 +1060,8 @@ static bool send_guard_note(void)
     if (!note) {
         return true;
     }
-    static char esc[sizeof(GUARD_LOST) * 2], line[sizeof(esc) + 160];
+    EXT_RAM_BSS_ATTR static char esc[sizeof(GUARD_LOST) * 2];
+    EXT_RAM_BSS_ATTR static char line[sizeof(esc) + 160];
     if (!muse_vc_json_escape(note == 2 ? GUARD_VERIFIED : GUARD_LOST, esc, sizeof(esc))) {
         return true;
     }

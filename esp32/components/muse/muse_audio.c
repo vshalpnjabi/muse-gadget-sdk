@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_codec_dev.h"
 #include "esp_heap_caps.h"
@@ -564,7 +565,7 @@ void muse_audio_sfx(int kind)
 void muse_audio_bye(void)
 {
     enum { MS = 70, N = MUSE_AUDIO_RATE * MS / 1000 };
-    static int16_t buf[N];
+    EXT_RAM_BSS_ATTR static int16_t buf[N];
     float phase = 0;
     for (int i = 0; i < N; i++) {
         float x = (float)i / N;

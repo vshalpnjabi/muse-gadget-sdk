@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -1011,7 +1012,7 @@ typedef struct {
  * nothing went up; *held: wanted, but held back unverified. */
 static bool vg_uplink(bool want, bool *held)
 {
-    static int16_t buf[MUSE_AUDIO_CHUNK];
+    EXT_RAM_BSS_ATTR static int16_t buf[MUSE_AUDIO_CHUNK];
     *held = false;
     if (!want) {
         muse_vg_uplink_skip();

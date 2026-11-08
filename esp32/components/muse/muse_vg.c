@@ -32,6 +32,7 @@
 #include <string.h>
 
 #include "cJSON.h"
+#include "esp_attr.h"
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
@@ -103,7 +104,7 @@ static atomic_uint s_held_samples, s_sent_samples;   /* this call's, for its log
 enum { CAL_CMD_NONE, CAL_CMD_START, CAL_CMD_FINISH, CAL_CMD_CANCEL };
 static atomic_int s_cal_cmd;
 static portMUX_TYPE s_cal_mux = portMUX_INITIALIZER_UNLOCKED;
-static muse_vg_cal_status_t s_cal;   /* under s_cal_mux */
+EXT_RAM_BSS_ATTR static muse_vg_cal_status_t s_cal;   /* under s_cal_mux */
 static char s_cal_id[33];
 static int s_cal_base = -1;
 static _Atomic float s_score;
@@ -116,10 +117,10 @@ typedef struct {
     int speech_ms;
     uint32_t win_end;   /* the window's last sample, as s_written counts */
 } pending_t;
-static pending_t s_pending[PENDING_MAX];
+EXT_RAM_BSS_ATTR static pending_t s_pending[PENDING_MAX];
 
 static esp_http_client_handle_t s_cli[2];
-static char s_resp[RESP_MAX];
+EXT_RAM_BSS_ATTR static char s_resp[RESP_MAX];
 static size_t s_resp_len;
 static int64_t s_home_down_until;
 static int s_rejects;   /* in a row */
@@ -344,7 +345,7 @@ static bool parse_verdict(float *score, bool *accept)
 static int speech_ms(const int16_t *win, float *peak_db)
 {
     enum { N = WINDOW_SAMPLES / SLICE };
-    static float db[N], sorted[N];
+    EXT_RAM_BSS_ATTR static float db[N], sorted[N];
     for (int i = 0; i < N; i++) {
         double acc = 0;
         for (int j = 0; j < SLICE; j++) {
