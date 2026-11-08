@@ -36,6 +36,7 @@
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/idf_additions.h"
@@ -43,6 +44,7 @@
 #include "freertos/task.h"
 #include "sdkconfig.h"
 
+#include "muse_audio.h"
 #include "muse_state.h"
 #include "muse_voice.h"
 #include "muse_wifi.h"
@@ -50,7 +52,7 @@
 static const char *TAG = "muse_vg";
 
 #define RATE 16000
-#define RING_SAMPLES (RATE * 4)        /* the last ~4 s */
+#define RING_SAMPLES (RATE * 8)        /* the last 8 s: a window, its verdict's wait, and held uplink */
 #define WINDOW_SAMPLES (RATE * 3)      /* what each window sends */
 #define STEP_SAMPLES (RATE / 2)        /* a window every 0.5 s of new audio */
 #define POST_EVERY_US 500000LL
@@ -68,6 +70,16 @@ static const char *TAG = "muse_vg";
 #define SPEECH_MIN_DB -50.0f            /* and at least this loud */
 #define SPEECH_MIN_MS 1200              /* of the window's 3 s */
 #define MUSE_ECHO_US 3000000LL          /* Muse spoke within this: its voice is in the window */
+/* Calibration: the live-call format (3 s, LE int16, 16 kHz mono), a window
+ * every 1.5 s, so its windows don't overlap more than the server expects. */
+#define CAL_STEP_SAMPLES (RATE * 3 / 2)
+#if CONFIG_MUSE_VG_ENFORCE
+#define VG_MODE_NAME "enforcing"
+#else
+#define VG_MODE_NAME "shadow mode"
+#endif
+#define CAL_POLL_US 2000000LL
+#define CAL_WAIT_US 60000000LL
 
 /* The ring: written by the voice task, read by the worker. */
 static int16_t *s_ring;
@@ -78,6 +90,20 @@ static SemaphoreHandle_t s_ring_lock;
 /* The latest verdict, for the face. */
 static atomic_bool s_running, s_have, s_accept;
 static atomic_uint s_seq;   /* verdicts so far */
+/* The call's verification (CONFIG_MUSE_VG_ENFORCE gates Muse's uplink on it),
+ * and where held audio may be released from: the accepted window's start. */
+static atomic_int s_state = MUSE_VG_UNVERIFIED;
+static atomic_uint s_release_from;
+static uint32_t s_sent;   /* voice task: the mic sample the uplink has reached */
+static atomic_uint s_held_samples, s_sent_samples;   /* this call's, for its log line */
+
+/* Calibration, asked by the UI, run by the worker. */
+enum { CAL_CMD_NONE, CAL_CMD_START, CAL_CMD_FINISH, CAL_CMD_CANCEL };
+static atomic_int s_cal_cmd;
+static portMUX_TYPE s_cal_mux = portMUX_INITIALIZER_UNLOCKED;
+static muse_vg_cal_status_t s_cal;   /* under s_cal_mux */
+static char s_cal_id[33];
+static int s_cal_base = -1;
 static _Atomic float s_score;
 
 typedef struct {
@@ -86,6 +112,7 @@ typedef struct {
     char id[48];
     int64_t posted_us, next_poll_us;
     int speech_ms;
+    uint32_t win_end;   /* the window's last sample, as s_written counts */
 } pending_t;
 static pending_t s_pending[PENDING_MAX];
 
@@ -120,6 +147,74 @@ uint32_t muse_vg_seq(void)
 bool muse_vg_running(void)
 {
     return atomic_load(&s_running);
+}
+
+muse_vg_state_t muse_vg_state(void)
+{
+    return (muse_vg_state_t)atomic_load(&s_state);
+}
+
+bool muse_vg_gating(void)
+{
+#if CONFIG_MUSE_VG_ENFORCE
+    return atomic_load(&s_running) && atomic_load(&s_state) != MUSE_VG_VERIFIED;
+#else
+    return false;
+#endif
+}
+
+void muse_vg_uplink_skip(void)
+{
+    s_sent = s_written;   /* not wanted (Muse talking, not held...): it never goes */
+}
+
+size_t muse_vg_uplink_next(int16_t *out, size_t cap)
+{
+    if (!s_ring || muse_vg_gating()) {
+        return 0;   /* held back: nothing unverified goes to Muse */
+    }
+    uint32_t written = s_written;   /* this task writes it: steady here */
+    uint32_t from = s_sent;
+    uint32_t rf = atomic_load(&s_release_from);
+    if ((int32_t)(rf - from) > 0) {
+        from = rf;   /* never older than the accepted window */
+    }
+    if ((int32_t)(written - from) > RING_SAMPLES) {
+        from = written - RING_SAMPLES;   /* fell behind the ring: the oldest is gone */
+    }
+    s_sent = from;
+    size_t n = written - from;
+    if (n > cap) {
+        n = cap;
+    }
+    if (!n || xSemaphoreTake(s_ring_lock, pdMS_TO_TICKS(5)) != pdTRUE) {
+        return 0;
+    }
+    size_t at = (s_head + RING_SAMPLES - (written - from)) % RING_SAMPLES;
+    size_t first = RING_SAMPLES - at < n ? RING_SAMPLES - at : n;
+    memcpy(out, s_ring + at, first * sizeof(int16_t));
+    memcpy(out + first, s_ring, (n - first) * sizeof(int16_t));
+    xSemaphoreGive(s_ring_lock);
+    return n;
+}
+
+void muse_vg_uplink_sent(size_t n)
+{
+    s_sent += n;
+    atomic_fetch_add(&s_sent_samples, n);
+}
+
+void muse_vg_uplink_held(size_t n)
+{
+    atomic_fetch_add(&s_held_samples, n);
+}
+
+static void set_state(muse_vg_state_t st, const char *why)
+{
+    if (atomic_exchange(&s_state, st) != (int)st) {
+        ESP_LOGI(TAG, "VG state %s (%s)", st == MUSE_VG_VERIFIED ? "verified" : st == MUSE_VG_LOST ? "lost" : "unverified",
+                 why);
+    }
 }
 
 bool muse_vg_latest(float *score, bool *accept)
@@ -270,9 +365,16 @@ static int speech_ms(const int16_t *win, float *peak_db)
  * reject turns it red only after REJECTS_TO_RED in a row (or with no green to
  * hold), so one miss on the caller's own voice doesn't flicker it. Quiet and
  * Muse's voice leave it as it is. */
-static void show_verdict(const char *id, float score, bool accept, int rtt, int ms)
+static void show_verdict(const char *id, float score, bool accept, int rtt, int ms, uint32_t win_end)
 {
     s_rejects = accept ? 0 : s_rejects + 1;
+    if (accept && atomic_load(&s_state) != MUSE_VG_VERIFIED) {
+        /* The accepted window is the caller's: it goes up, and on from there. */
+        atomic_store(&s_release_from, win_end - WINDOW_SAMPLES);
+        set_state(MUSE_VG_VERIFIED, "a window accepted");
+    } else if (!accept && s_rejects >= REJECTS_TO_RED && atomic_load(&s_state) == MUSE_VG_VERIFIED) {
+        set_state(MUSE_VG_LOST, "rejects in a row");
+    }
     bool have = atomic_load(&s_have);
     if (accept || !have || s_rejects >= REJECTS_TO_RED) {
         atomic_store(&s_score, score);
@@ -294,6 +396,7 @@ static void post_window(int16_t *win, int64_t now)
     size_t first = RING_SAMPLES - start < WINDOW_SAMPLES ? RING_SAMPLES - start : WINDOW_SAMPLES;
     memcpy(win, s_ring + start, first * sizeof(int16_t));
     memcpy(win + first, s_ring, (WINDOW_SAMPLES - first) * sizeof(int16_t));
+    uint32_t win_end = s_written;
     xSemaphoreGive(s_ring_lock);
 
     /* Not the caller speaking: grey, not sent. */
@@ -322,13 +425,13 @@ static void post_window(int16_t *win, int64_t now)
     float score = 0;
     bool accept = false;
     if (parse_verdict(&score, &accept)) {
-        show_verdict(id, score, accept, (int)((esp_timer_get_time() - now) / 1000), ms);
+        show_verdict(id, score, accept, (int)((esp_timer_get_time() - now) / 1000), ms, win_end);
         return;   /* ready with the reply: no polling */
     }
     for (int i = 0; i < PENDING_MAX; i++) {
         if (!s_pending[i].on) {
             s_pending[i] = (pending_t){ .on = true, .base = base, .posted_us = now, .next_poll_us = now + POLL_EVERY_US,
-                                        .speech_ms = ms };
+                                        .speech_ms = ms, .win_end = win_end };
             strlcpy(s_pending[i].id, id, sizeof(s_pending[i].id));
             return;
         }
@@ -355,12 +458,188 @@ static void poll_verdicts(int64_t now)
         bool accept = false;
         if (status >= 200 && status < 300 && parse_verdict(&score, &accept)) {
             int rtt = (int)((esp_timer_get_time() - p->posted_us) / 1000);
-            show_verdict(p->id, score, accept, rtt, p->speech_ms);
+            show_verdict(p->id, score, accept, rtt, p->speech_ms, p->win_end);
             p->on = false;
         } else {
             p->next_poll_us = now + POLL_EVERY_US;
         }
     }
+}
+
+/* ---- Calibration ---- */
+
+static void cal_set(muse_vg_cal_phase_t phase, const char *reason)
+{
+    portENTER_CRITICAL(&s_cal_mux);
+    s_cal.phase = phase;
+    if (reason) {
+        strlcpy(s_cal.reason, reason, sizeof(s_cal.reason));
+    }
+    portEXIT_CRITICAL(&s_cal_mux);
+}
+
+void muse_vg_cal_status(muse_vg_cal_status_t *out)
+{
+    portENTER_CRITICAL(&s_cal_mux);
+    *out = s_cal;
+    portEXIT_CRITICAL(&s_cal_mux);
+}
+
+bool muse_vg_cal_start(void)
+{
+    if (!atomic_load(&s_running)) {
+        return false;
+    }
+    portENTER_CRITICAL(&s_cal_mux);
+    memset(&s_cal, 0, sizeof(s_cal));
+    s_cal.phase = MUSE_VG_CAL_RECORDING;
+    portEXIT_CRITICAL(&s_cal_mux);
+    atomic_store(&s_cal_cmd, CAL_CMD_START);
+    return true;
+}
+
+void muse_vg_cal_finish(void)
+{
+    atomic_store(&s_cal_cmd, CAL_CMD_FINISH);
+}
+
+void muse_vg_cal_cancel(void)
+{
+    atomic_store(&s_cal_cmd, CAL_CMD_CANCEL);
+}
+
+/* One request to the session's base, home first while it has none yet (or
+ * after it failed), then HTTPS: both reach the same relay. -1: neither answered. */
+static int cal_request(bool post, const char *path, const void *body, int len)
+{
+    int order[2] = { s_cal_base == 1 ? 1 : 0, s_cal_base == 1 ? 0 : 1 };
+    for (int i = 0; i < 2; i++) {
+        int status = request(order[i], post, path, body, len);
+        if (status >= 200 && status < 500) {
+            s_cal_base = order[i];
+            return status;
+        }
+    }
+    return -1;
+}
+
+static const char *json_str(const cJSON *root, const char *key)
+{
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(root, key);
+    return cJSON_IsString(v) && v->valuestring ? v->valuestring : NULL;
+}
+
+/* The calibration session: runs instead of call windows while it's on. */
+static bool cal_tick(int16_t *win, int64_t now)
+{
+    static uint32_t posted_at;
+    static int64_t poll_at, give_up_at;
+    int cmd = atomic_exchange(&s_cal_cmd, CAL_CMD_NONE);
+    muse_vg_cal_status_t st;
+    muse_vg_cal_status(&st);
+    if (cmd == CAL_CMD_CANCEL) {
+        if (st.phase == MUSE_VG_CAL_RECORDING || st.phase == MUSE_VG_CAL_BUILDING) {
+            ESP_LOGI(TAG, "VG calibrate %s cancelled", s_cal_id);
+        }
+        cal_set(MUSE_VG_CAL_IDLE, NULL);
+        return false;
+    }
+    if (cmd == CAL_CMD_START) {
+        uint8_t raw[16];
+        esp_fill_random(raw, sizeof(raw));
+        for (int i = 0; i < 16; i++) {
+            snprintf(s_cal_id + 2 * i, 3, "%02x", raw[i]);
+        }
+        s_cal_base = -1;
+        posted_at = s_written + (WINDOW_SAMPLES - CAL_STEP_SAMPLES);   /* the first after 3 s of reading */
+        ESP_LOGI(TAG, "VG calibrate %s started", s_cal_id);
+        return true;
+    }
+    if (st.phase == MUSE_VG_CAL_RECORDING) {
+        if (cmd == CAL_CMD_FINISH) {
+            char path[96];
+            snprintf(path, sizeof(path), "/calibrate/%s/finish", s_cal_id);
+            int status = cal_request(true, path, "", 0);
+            ESP_LOGI(TAG, "VG calibrate %s finish: HTTP %d after %d windows", s_cal_id, status, st.uploaded);
+            if (status < 0) {
+                cal_set(MUSE_VG_CAL_FAILED, "unreachable");
+            } else if (status < 200 || status >= 300) {
+                cal_set(MUSE_VG_CAL_FAILED, status == 404 ? "not_supported" : "server_error");
+            } else {
+                cal_set(MUSE_VG_CAL_BUILDING, NULL);
+                poll_at = now + CAL_POLL_US;
+                give_up_at = now + CAL_WAIT_US;
+            }
+            return true;
+        }
+        if ((int32_t)(s_written - posted_at) < CAL_STEP_SAMPLES) {
+            return true;
+        }
+        posted_at = s_written;
+        if (xSemaphoreTake(s_ring_lock, pdMS_TO_TICKS(50)) != pdTRUE) {
+            return true;
+        }
+        size_t start = (s_head + RING_SAMPLES - WINDOW_SAMPLES) % RING_SAMPLES;
+        size_t first = RING_SAMPLES - start < WINDOW_SAMPLES ? RING_SAMPLES - start : WINDOW_SAMPLES;
+        memcpy(win, s_ring + start, first * sizeof(int16_t));
+        memcpy(win + first, s_ring, (WINDOW_SAMPLES - first) * sizeof(int16_t));
+        xSemaphoreGive(s_ring_lock);
+        char path[160];
+        snprintf(path, sizeof(path), "/window?speaker=%s&format=pcm16&calibrate=%s", CONFIG_MUSE_VG_SPEAKER, s_cal_id);
+        int status = cal_request(true, path, win, WINDOW_SAMPLES * sizeof(int16_t));
+        if (status >= 200 && status < 300) {
+            portENTER_CRITICAL(&s_cal_mux);
+            s_cal.uploaded++;
+            portEXIT_CRITICAL(&s_cal_mux);
+            ESP_LOGI(TAG, "VG calibrate %s window %d (%s)", s_cal_id, st.uploaded + 1, s_cal_base ? "away" : "home");
+        } else {
+            ESP_LOGW(TAG, "VG calibrate %s window: HTTP %d", s_cal_id, status);
+            if (status < 0) {
+                cal_set(MUSE_VG_CAL_FAILED, "unreachable");   /* neither base: stop */
+            } else {
+                portENTER_CRITICAL(&s_cal_mux);
+                s_cal.rejected++;
+                portEXIT_CRITICAL(&s_cal_mux);
+            }
+        }
+        return true;
+    }
+    if (st.phase == MUSE_VG_CAL_BUILDING) {
+        if (now < poll_at) {
+            return true;
+        }
+        poll_at = now + CAL_POLL_US;
+        if (now > give_up_at) {
+            cal_set(MUSE_VG_CAL_FAILED, "timeout");
+            return true;
+        }
+        char path[80];
+        snprintf(path, sizeof(path), "/calibrate/%s", s_cal_id);
+        int status = cal_request(false, path, NULL, 0);
+        if (status < 200 || status >= 300) {
+            return true;   /* try again until the wait runs out */
+        }
+        cJSON *root = cJSON_Parse(s_resp);
+        const char *state = root ? json_str(root, "status") : NULL;
+        if (state && !strcmp(state, "ok")) {
+            const cJSON *t = cJSON_GetObjectItemCaseSensitive(root, "threshold");
+            const cJSON *n = cJSON_GetObjectItemCaseSensitive(root, "windows_used");
+            portENTER_CRITICAL(&s_cal_mux);
+            s_cal.threshold = cJSON_IsNumber(t) ? (float)t->valuedouble : 0;
+            s_cal.windows_used = cJSON_IsNumber(n) ? n->valueint : 0;
+            s_cal.phase = MUSE_VG_CAL_OK;
+            portEXIT_CRITICAL(&s_cal_mux);
+            ESP_LOGI(TAG, "VG calibrate %s ok: threshold %.3f from %d windows", s_cal_id, s_cal.threshold,
+                     s_cal.windows_used);
+        } else if (state && !strcmp(state, "failed")) {
+            const char *reason = json_str(root, "reason");
+            cal_set(MUSE_VG_CAL_FAILED, reason ? reason : "server_error");
+            ESP_LOGI(TAG, "VG calibrate %s failed: %s", s_cal_id, reason ? reason : "(no reason)");
+        }
+        cJSON_Delete(root);
+        return true;
+    }
+    return false;
 }
 
 static bool active(void)
@@ -384,6 +663,9 @@ static void vg_task(void *arg)
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(100));
         int64_t now = esp_timer_get_time();
+        if (cal_tick(win, now)) {
+            continue;   /* calibrating: no call windows meanwhile */
+        }
         poll_verdicts(now);
         bool on = active();
         if (muse_voice_call_view() == MUSE_VOICE_VIEW_SPEAKING) {
@@ -392,6 +674,10 @@ static void vg_task(void *arg)
         if (on && !was_active) {
             atomic_store(&s_have, false);   /* a new call starts grey */
             s_rejects = 0;
+            atomic_store(&s_release_from, s_written);
+            atomic_store(&s_held_samples, 0);
+            atomic_store(&s_sent_samples, 0);
+            set_state(MUSE_VG_UNVERIFIED, "a call started");
             /* A new session: the ring still holds the last one's audio, so the
              * first window waits for 3 s of this one's. */
             posted_at = s_written + (WINDOW_SAMPLES - STEP_SAMPLES);
@@ -399,6 +685,9 @@ static void vg_task(void *arg)
         if (!on && was_active) {
             atomic_store(&s_have, false);   /* the call's over: grey while idle */
             s_rejects = 0;
+            set_state(MUSE_VG_UNVERIFIED, "the call ended");
+            ESP_LOGI(TAG, "VG uplink this call: %.1f s of mic held back (unverified), %.1f s sent to Muse",
+                     atomic_load(&s_held_samples) / (float)RATE, atomic_load(&s_sent_samples) / (float)RATE);
         }
         was_active = on;
         if (!on || !muse_wifi_connected() || now < next_post) {
@@ -434,6 +723,7 @@ void muse_vg_start(void)
         return;
     }
     atomic_store(&s_running, true);
-    ESP_LOGI(TAG, "voice guard (shadow mode): speaker %s, home %s, away %s", CONFIG_MUSE_VG_SPEAKER,
+    ESP_LOGI(TAG, "voice guard (%s): speaker %s, home %s, away %s",
+             VG_MODE_NAME, CONFIG_MUSE_VG_SPEAKER,
              CONFIG_MUSE_VG_HOME_BASE, CONFIG_MUSE_VG_AWAY_BASE);
 }

@@ -40,6 +40,9 @@
 #include "muse_wifi.h"
 #if CONFIG_MUSE_REALTIME_VOICE
 #include "muse_voice_call.h"
+#if CONFIG_MUSE_VG_ENFORCE
+#include "muse_vg.h"
+#endif
 #include "muse_voice_call_core.h"
 #endif
 
@@ -965,7 +968,44 @@ typedef struct {
     int64_t down_us;   /* ONE_BUTTON_PTT: when the press in this call began (0: the one that opened it) */
     size_t release_frames;
     muse_vc_gate_t gate;
+    int64_t vg_wait_until;   /* push-to-talk: a release waits this long at most for the voice's verdict */
 } call_ui_t;
+
+#if !CONFIG_MUSE_VG_ENFORCE
+#define VG_PTT_WAIT_US_OR_0 0
+#endif
+
+#if CONFIG_MUSE_VG_ENFORCE
+#define VG_PTT_WAIT_US 2500000LL
+#define VG_PTT_WAIT_US_OR_0 VG_PTT_WAIT_US
+
+/* The uplink, voice guard enforcing: the mic chunk is in the guard's ring
+ * already, so Muse gets audio from there, and only once the voice is
+ * verified (then the held audio from the accepted window first). False when
+ * nothing went up; *held: wanted, but held back unverified. */
+static bool vg_uplink(bool want, bool *held)
+{
+    static int16_t buf[MUSE_AUDIO_CHUNK];
+    *held = false;
+    if (!want) {
+        muse_vg_uplink_skip();
+        return false;
+    }
+    if (muse_vg_gating()) {
+        *held = true;
+        muse_vg_uplink_held(MUSE_AUDIO_CHUNK);
+        return false;
+    }
+    bool sent = false;
+    size_t n;
+    while ((n = muse_vg_uplink_next(buf, MUSE_AUDIO_CHUNK)) != 0) {
+        if (!muse_voice_call_audio(buf, n)) break;   /* Muse's backlog is full: the rest next time */
+        muse_vg_uplink_sent(n);
+        sent = true;
+    }
+    return sent;
+}
+#endif
 
 static void call_view(muse_voice_view_t view);
 
@@ -1010,6 +1050,7 @@ static void call_input(call_ui_t *c)
                 muse_voice_call_set_talking(false);
             } else {
                 c->release_until = esp_timer_get_time() + CALL_RELEASE_US;
+                c->vg_wait_until = c->release_until + VG_PTT_WAIT_US_OR_0;
                 c->release_frames = TAIL_FRAMES;
             }
         }
@@ -1065,7 +1106,11 @@ static void run_call(bool ptt, size_t waking_chunks)
         muse_voice_call_start_ptt();
         /* These were captured while this waking press was held. Enqueue
          * them before UP, so release drains them like other captured input. */
-        for (size_t i = 0; i < waking_chunks && !atomic_load(&s_shutdown) &&
+        size_t pre_chunks = waking_chunks;
+#if CONFIG_MUSE_VG_ENFORCE
+        if (muse_vg_running()) pre_chunks = 0;   /* unverified: none goes up (the guard's ring has it for its window) */
+#endif
+        for (size_t i = 0; i < pre_chunks && !atomic_load(&s_shutdown) &&
              c.input_epoch == muse_input_call_epoch(); i++) {
             pre_get(i, s_chunk);
             c.awaiting |= muse_voice_call_audio(s_chunk, MUSE_AUDIO_CHUNK);
@@ -1118,12 +1163,26 @@ static void run_call(bool ptt, size_t waking_chunks)
             muse_voice_call_ptt_status(&status);
             c.live = status.live;
             c.server_hold = status.hold;
+#if CONFIG_MUSE_VG_ENFORCE
+            /* A short press can end before its verdict: hold the release open
+             * (bounded) so the verified words still go up with it. */
+            if (c.release_until && !c.server_hold && muse_vg_gating() && now < c.vg_wait_until &&
+                c.release_until < now + 60000) {
+                c.release_until = now + 60000;
+            }
+#endif
             if (c.server_hold || (c.release_until && esp_timer_get_time() >= c.release_until)) finish_release(&c);
         }
         bool mic = captured && !c.hung_up && !c.server_hold && c.input_epoch == muse_input_call_epoch();
         if (ptt) mic = mic && capture_window && (c.held || c.release_until) && press == c.press && status.capture;
         else mic = mic && c.live && muse_vc_gate_mic_open(&c.gate, now);
+        bool held_back = false;   /* wanted, but held: the voice isn't verified */
+#if CONFIG_MUSE_VG_ENFORCE
+        if (muse_vg_running() && captured) mic = vg_uplink(mic, &held_back);
+        else
+#endif
         if (mic) mic = muse_voice_call_audio(s_chunk, MUSE_AUDIO_CHUNK);
+        bool listening = mic || held_back;
         if (ptt && mic) {
             c.awaiting = true;
             if (c.release_until) {
@@ -1131,7 +1190,7 @@ static void run_call(bool ptt, size_t waking_chunks)
                 if (!c.release_frames) finish_release(&c);
             }
         }
-        bool show_mic = mic && c.live && (!ptt || c.held);
+        bool show_mic = listening && c.live && (!ptt || c.held);
         float mic_level = show_mic ? muse_audio_level(s_chunk, MUSE_AUDIO_CHUNK) : 0;
         if (s_monitor) s_monitor_db = show_mic ? muse_audio_dbfs(s_chunk, MUSE_AUDIO_CHUNK) : -100.0f;
         bool flushed = false;
@@ -1151,7 +1210,7 @@ static void run_call(bool ptt, size_t waking_chunks)
         muse_voice_view_t view = c.hung_up ? MUSE_VOICE_VIEW_ENDING :
             !c.live ? MUSE_VOICE_VIEW_CONNECTING :
             c.server_hold ? MUSE_VOICE_VIEW_THINKING :
-            ptt && c.held ? (mic ? MUSE_VOICE_VIEW_LISTENING : MUSE_VOICE_VIEW_THINKING) :
+            ptt && c.held ? (listening ? MUSE_VOICE_VIEW_LISTENING : MUSE_VOICE_VIEW_THINKING) :
             speaking ? MUSE_VOICE_VIEW_SPEAKING :
             !ptt ? (muse_voice_call_working() ? MUSE_VOICE_VIEW_WORKING : MUSE_VOICE_VIEW_LISTENING) :
             c.release_until || c.awaiting || status.sending ? MUSE_VOICE_VIEW_THINKING :

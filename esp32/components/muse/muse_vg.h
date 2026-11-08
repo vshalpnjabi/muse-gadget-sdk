@@ -37,6 +37,47 @@ void muse_vg_start(void);
 /* Whether it's on (a token set and the worker started): the face shows its dot. */
 bool muse_vg_running(void);
 
+/* The call's verification: unverified at its start, verified on an accepted
+ * window, lost after rejects in a row (quiet windows aren't scored, so they
+ * never count against it). */
+typedef enum { MUSE_VG_UNVERIFIED, MUSE_VG_VERIFIED, MUSE_VG_LOST } muse_vg_state_t;
+muse_vg_state_t muse_vg_state(void);
+
+/*
+ * The uplink gate (CONFIG_MUSE_VG_ENFORCE), voice task only. Every mic chunk
+ * is in the guard's ring already (muse_vg_tee), so the voice task sends from
+ * there: muse_vg_uplink_next() gives the next audio Muse may have (none while
+ * gating; once verified, from the accepted window on, then live), and
+ * muse_vg_uplink_sent() moves past what Muse took. Audio that isn't wanted
+ * (Muse talking, the button not held) is passed over with muse_vg_uplink_skip().
+ */
+bool muse_vg_gating(void);
+size_t muse_vg_uplink_next(int16_t *out, size_t cap);
+void muse_vg_uplink_sent(size_t n);
+void muse_vg_uplink_skip(void);
+void muse_vg_uplink_held(size_t n);   /* counts held-back audio, for the call's log line */
+
+/* Voice calibration (Settings > Sound > Calibrate voice): the windows go to
+ * the relay's calibration store; the server builds and swaps the print. */
+typedef enum {
+    MUSE_VG_CAL_IDLE,
+    MUSE_VG_CAL_RECORDING,
+    MUSE_VG_CAL_BUILDING,
+    MUSE_VG_CAL_OK,
+    MUSE_VG_CAL_FAILED,
+} muse_vg_cal_phase_t;
+typedef struct {
+    muse_vg_cal_phase_t phase;
+    int uploaded, rejected;      /* windows */
+    float threshold;             /* OK */
+    int windows_used;            /* OK */
+    char reason[32];             /* FAILED: the server's, or unreachable / timeout / not_supported */
+} muse_vg_cal_status_t;
+bool muse_vg_cal_start(void);    /* false if the guard isn't running */
+void muse_vg_cal_finish(void);   /* the script's been read */
+void muse_vg_cal_cancel(void);
+void muse_vg_cal_status(muse_vg_cal_status_t *out);
+
 /* Counts verdicts as they come: the dot blinks on each. */
 uint32_t muse_vg_seq(void);
 

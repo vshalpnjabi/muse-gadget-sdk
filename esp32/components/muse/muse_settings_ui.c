@@ -44,6 +44,9 @@
 #include "muse_ui.h"
 #include "muse_voice.h"
 #include "muse_wifi.h"
+#if CONFIG_MUSE_VOICE_GUARD
+#include "muse_vg.h"
+#endif
 #if CONFIG_MUSE_VIDEO
 #include "muse_video.h"
 #endif
@@ -1304,6 +1307,230 @@ static void on_bright(lv_event_t *e)
     }
 }
 
+#if CONFIG_MUSE_VOICE_GUARD
+/* ---- Calibrate voice: read a fixed script aloud; the server rebuilds the
+ * board's voice print from it (muse_vg.h). A full-screen overlay. ---- */
+
+static const char *const CAL_SCRIPT[] = {
+    "Hello, I am calibrating my voice so this device can recognize me.",
+    "I am speaking in my normal voice, at my usual pace, just like I would in everyday conversation.",
+    "In the morning I like to have a cup of coffee and check the weather before starting my day.",
+    "Later, I might go for a walk, run a few errands, or spend some time reading a book.",
+    "The quick brown fox jumps over the lazy dog.",
+    "Numbers are useful too.",
+    "One, two, three, four, five, six, seven, eight, nine, ten.",
+    "Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday.",
+    "That should be enough for a good calibration.",
+};
+#define CAL_SENTENCES (sizeof(CAL_SCRIPT) / sizeof(CAL_SCRIPT[0]))
+
+static lv_obj_t *s_cal_ov, *s_cal_text, *s_cal_bar, *s_cal_status, *s_cal_btn, *s_cal_btn_lbl;
+static lv_timer_t *s_cal_timer;
+static uint32_t s_cal_t0, s_cal_ms[CAL_SENTENCES], s_cal_total;
+static int s_cal_step;   /* 0 intro, 1 reading, 2 building, 3 done */
+
+/* Reading pace: about 0.43 s a word and a breath per sentence (~48 s in all). */
+static uint32_t cal_sentence_ms(const char *t)
+{
+    int words = 1;
+    for (const char *c = t; *c; c++) words += *c == ' ';
+    uint32_t ms = (uint32_t)words * 430 + 600;
+    return ms < 2500 ? 2500 : ms;
+}
+
+static const char *cal_reason_words(const char *r)
+{
+    if (!strcmp(r, "too_little_speech")) return "Too little usable speech came through. Try again somewhere quiet, close to the board.";
+    if (!strcmp(r, "self_check_failed")) return "The new voice print didn't pass its self-check.";
+    if (!strcmp(r, "no_windows")) return "None of the recording reached the server.";
+    if (!strcmp(r, "unreachable")) return "Server unreachable.";
+    if (!strcmp(r, "timeout")) return "The server didn't finish in time.";
+    if (!strcmp(r, "not_supported")) return "The server doesn't support calibration yet.";
+    return "The server had an error.";
+}
+
+static void cal_close(void)
+{
+    if (s_cal_timer) {
+        lv_timer_delete(s_cal_timer);
+        s_cal_timer = NULL;
+    }
+    if (s_cal_ov) {
+        lv_obj_delete(s_cal_ov);
+        s_cal_ov = NULL;
+    }
+}
+
+static void cal_set_button(const char *text)
+{
+    lv_label_set_text(s_cal_btn_lbl, text);
+}
+
+static void cal_tick(lv_timer_t *t)
+{
+    (void)t;
+    muse_vg_cal_status_t st;
+    muse_vg_cal_status(&st);
+    char buf[160];
+    if (s_cal_step == 1) {
+        uint32_t el = lv_tick_get() - s_cal_t0;
+        if (st.phase == MUSE_VG_CAL_FAILED) {
+            s_cal_step = 3;
+        } else if (el >= s_cal_total) {
+            muse_vg_cal_finish();
+            s_cal_step = 2;
+            lv_label_set_text(s_cal_text, "Thanks. Building your voice print...");
+            lv_bar_set_value(s_cal_bar, 100, LV_ANIM_OFF);
+            cal_set_button("Cancel");
+        } else {
+            uint32_t acc = 0;
+            size_t i = 0;
+            while (i + 1 < CAL_SENTENCES && el >= acc + s_cal_ms[i]) acc += s_cal_ms[i++];
+            if (strcmp(lv_label_get_text(s_cal_text), CAL_SCRIPT[i])) lv_label_set_text(s_cal_text, CAL_SCRIPT[i]);
+            lv_bar_set_value(s_cal_bar, (int32_t)(el * 100 / s_cal_total), LV_ANIM_OFF);
+            snprintf(buf, sizeof(buf), "Read aloud  %u/%u\n%d sent", (unsigned)(i + 1), (unsigned)CAL_SENTENCES,
+                     st.uploaded);
+            lv_label_set_text(s_cal_status, buf);
+            return;
+        }
+    }
+    if (s_cal_step == 2) {
+        if (st.phase == MUSE_VG_CAL_BUILDING || st.phase == MUSE_VG_CAL_RECORDING) {
+            snprintf(buf, sizeof(buf), "%d windows sent. Checking...", st.uploaded);
+            lv_label_set_text(s_cal_status, buf);
+            return;
+        }
+        s_cal_step = 3;
+    }
+    if (s_cal_step == 3) {
+        if (st.phase == MUSE_VG_CAL_OK) {
+            lv_label_set_text(s_cal_text, "Your voice is calibrated.");
+            snprintf(buf, sizeof(buf), "New threshold %.2f\nfrom %d windows", st.threshold, st.windows_used);
+            lv_obj_set_style_text_color(s_cal_text, lv_color_hex(COLOR_OK), 0);
+        } else {
+            lv_label_set_text(s_cal_text, cal_reason_words(st.reason));
+            snprintf(buf, sizeof(buf), "Your previous voice print stays in use.");
+            lv_obj_set_style_text_color(s_cal_text, lv_color_hex(COLOR_WARN), 0);
+        }
+        lv_label_set_text(s_cal_status, buf);
+        cal_set_button("Done");
+        lv_timer_delete(s_cal_timer);
+        s_cal_timer = NULL;
+        s_cal_step = 4;
+    }
+}
+
+static void on_cal_button(lv_event_t *e)
+{
+    (void)e;
+    if (s_cal_step == 0) {
+        if (muse_voice_in_call()) {
+            lv_label_set_text(s_cal_status, "End the call first.");
+            return;
+        }
+        if (muse_audio_mic_muted()) {
+            lv_label_set_text(s_cal_status, "The mic is muted.");
+            return;
+        }
+        if (!muse_wifi_connected() || !muse_vg_cal_start()) {
+            lv_label_set_text(s_cal_status, "Server unreachable.");
+            return;
+        }
+        s_cal_step = 1;
+        s_cal_t0 = lv_tick_get();
+        lv_obj_set_style_text_font(s_cal_text, &lv_font_montserrat_20, 0);
+        lv_obj_remove_flag(s_cal_bar, LV_OBJ_FLAG_HIDDEN);
+        cal_set_button("Cancel");
+        s_cal_timer = lv_timer_create(cal_tick, 100, NULL);
+        cal_tick(NULL);
+        return;
+    }
+    if (s_cal_step < 4) muse_vg_cal_cancel();
+    cal_close();
+}
+
+static void on_cal_x(lv_event_t *e)
+{
+    (void)e;
+    if (s_cal_step > 0 && s_cal_step < 4) muse_vg_cal_cancel();
+    cal_close();
+}
+
+static void on_cal_open(lv_event_t *e)
+{
+    (void)e;
+    if (s_cal_ov) return;
+    s_cal_total = 0;
+    for (size_t i = 0; i < CAL_SENTENCES; i++) s_cal_total += (s_cal_ms[i] = cal_sentence_ms(CAL_SCRIPT[i]));
+    s_cal_step = 0;
+    int w = lv_display_get_horizontal_resolution(NULL), h = lv_display_get_vertical_resolution(NULL);
+    s_cal_ov = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(s_cal_ov);
+    lv_obj_set_size(s_cal_ov, w, h);
+    lv_obj_set_style_bg_color(s_cal_ov, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(s_cal_ov, LV_OPA_COVER, 0);
+    lv_obj_add_flag(s_cal_ov, LV_OBJ_FLAG_CLICKABLE);   /* nothing behind it takes touches */
+    lv_obj_remove_flag(s_cal_ov, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *title = lv_label_create(s_cal_ov);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(COLOR_ACCENT), 0);
+    lv_label_set_text(title, "CALIBRATE VOICE");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, h / 9);
+
+    s_cal_text = lv_label_create(s_cal_ov);
+    lv_obj_set_width(s_cal_text, w * 72 / 100);   /* inside the round screen's middle */
+    lv_label_set_long_mode(s_cal_text, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_text_align(s_cal_text, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(s_cal_text, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(s_cal_text, lv_color_hex(COLOR_TEXT), 0);
+    lv_label_set_text(s_cal_text, "Read each sentence aloud in your normal voice, close to the board. "
+                                  "About 45 seconds; somewhere quiet is best.");
+    lv_obj_align(s_cal_text, LV_ALIGN_CENTER, 0, -h / 14);
+
+    s_cal_bar = lv_bar_create(s_cal_ov);
+    lv_obj_set_size(s_cal_bar, w * 55 / 100, 8);
+    lv_bar_set_range(s_cal_bar, 0, 100);
+    lv_obj_set_style_bg_color(s_cal_bar, lv_color_hex(COLOR_CARD), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_cal_bar, lv_color_hex(COLOR_ACCENT), LV_PART_INDICATOR);
+    lv_obj_align(s_cal_bar, LV_ALIGN_CENTER, 0, h * 17 / 100);
+    lv_obj_add_flag(s_cal_bar, LV_OBJ_FLAG_HIDDEN);
+
+    s_cal_status = lv_label_create(s_cal_ov);
+    lv_obj_set_width(s_cal_status, w * 60 / 100);
+    lv_label_set_long_mode(s_cal_status, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_text_align(s_cal_status, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(s_cal_status, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_cal_status, lv_color_hex(COLOR_DIM), 0);
+    lv_label_set_text(s_cal_status, "");
+    lv_obj_align(s_cal_status, LV_ALIGN_CENTER, 0, h * 25 / 100);
+
+    s_cal_btn = lv_button_create(s_cal_ov);
+    lv_obj_set_size(s_cal_btn, 120, 44);
+    lv_obj_set_style_radius(s_cal_btn, 22, 0);
+    lv_obj_set_style_bg_color(s_cal_btn, lv_color_hex(COLOR_CARD), 0);
+    lv_obj_set_style_shadow_width(s_cal_btn, 0, 0);
+    lv_obj_align(s_cal_btn, LV_ALIGN_BOTTOM_MID, 0, -h / 12);
+    lv_obj_add_event_cb(s_cal_btn, on_cal_button, LV_EVENT_CLICKED, NULL);
+    s_cal_btn_lbl = lv_label_create(s_cal_btn);
+    lv_obj_set_style_text_font(s_cal_btn_lbl, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(s_cal_btn_lbl, lv_color_hex(COLOR_TEXT), 0);
+    lv_label_set_text(s_cal_btn_lbl, "Start");
+    lv_obj_center(s_cal_btn_lbl);
+
+    /* A second way out before it starts: a small close at the top. */
+    lv_obj_t *x = lv_button_create(s_cal_ov);
+    lv_obj_remove_style_all(x);
+    lv_obj_set_size(x, 44, 44);
+    lv_obj_align(x, LV_ALIGN_TOP_MID, 0, h / 9 + 22);
+    lv_obj_t *xl = lv_label_create(x);
+    lv_obj_set_style_text_color(xl, lv_color_hex(COLOR_DIM), 0);
+    lv_label_set_text(xl, LV_SYMBOL_CLOSE);
+    lv_obj_center(xl);
+    lv_obj_add_event_cb(x, on_cal_x, LV_EVENT_CLICKED, NULL);
+}
+#endif
+
 static void build_sound_page(lv_obj_t *tile)
 {
     lv_obj_t *list;
@@ -1333,6 +1560,12 @@ static void build_sound_page(lv_obj_t *tile)
         set_val(s_boost_val, "+%d dB", muse_settings_speaker_boost());
     }
     s_gain_sl = slider(list, "Mic gain", 0, MUSE_MIC_GAIN_MAX / 3, muse_settings_mic_gain() / 3, &s_gain_val, on_gain);
+#if CONFIG_MUSE_VOICE_GUARD
+    if (muse_vg_running()) {
+        row(list, NULL, "Calibrate voice", NULL, on_cal_open, NULL);
+        note(list, "Read a short script aloud so the board recognizes your voice.");
+    }
+#endif
 
     lv_obj_t *meter = lv_obj_create(list);
     lv_obj_remove_style_all(meter);

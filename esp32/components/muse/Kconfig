@@ -480,6 +480,17 @@ menu "Muse"
             Shadow mode: the verdict never changes what Muse hears. Does
             nothing until a token is set.
 
+    config MUSE_VG_ENFORCE
+        bool "Voice guard: only a verified voice reaches Muse in a call"
+        depends on MUSE_VOICE_GUARD
+        default y
+        help
+            A call starts unverified: the mic audio is held on the board, not
+            sent. An accepted window verifies it, and its audio goes up from
+            that window on; rejects in a row (about 1.5 s of another voice)
+            lose it until the next accept. Off: shadow mode, the dot only.
+            Needs the verification server: without it, Muse hears nothing.
+
     config MUSE_VG_HOME_BASE
         string "Voice guard: home base URL (tried first)"
         depends on MUSE_VOICE_GUARD
