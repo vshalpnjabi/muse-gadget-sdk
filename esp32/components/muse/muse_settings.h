@@ -94,6 +94,9 @@ bool muse_settings_autorotate(void);
 void muse_settings_set_autorotate(bool on);
 /* Settings > Appearance > 24-hour clock: 21:47 rather than 9:47 on the face (on by default). */
 bool muse_settings_clock24(void);
+/* Settings > Appearance > Always-on display: asleep, the screen stays on at 5% (off by default). */
+bool muse_settings_always_on(void);
+void muse_settings_set_always_on(bool on);
 void muse_settings_set_clock24(bool on);
 /* Settings > Sound, the voice guard: when a call's voice isn't recognized, show a notice
  * (on), play a tone (on), and/or have Muse say so (off: needs Muse's side). */

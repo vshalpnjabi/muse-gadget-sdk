@@ -1883,6 +1883,11 @@ static void on_rotate_sw(lv_event_t *e)
 }
 #endif
 
+static void on_aod_sw(lv_event_t *e)
+{
+    muse_settings_set_always_on(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
+}
+
 #if CONFIG_MUSE_CLOCK
 static void on_clock24_sw(lv_event_t *e)
 {
@@ -1918,6 +1923,10 @@ static void build_appearance_page(lv_obj_t *tile)
 #if CONFIG_MUSE_CLOCK
     switch_row(list, "24-hour clock", muse_settings_clock24(), on_clock24_sw);
 #endif
+    if (!muse_board->epaper) {
+        switch_row(list, "Always-on display", muse_settings_always_on(), on_aod_sw);
+        note(list, "When idle, the screen dims to 5% instead of turning off.");
+    }
     note(list, "Theme:");
     for (int i = 0; i < muse_theme_count() && i < THEMES_MAX; i++) {
         lv_obj_t *r = row(list, NULL, muse_theme_at(i)->name, &s_theme_checks[i], on_theme_choice, (void *)(intptr_t)i);

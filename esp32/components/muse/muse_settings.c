@@ -82,6 +82,7 @@ static atomic_bool s_dnd;
 static atomic_int s_spk_boost = CONFIG_MUSE_SPEAKER_MAX_DB;
 static atomic_bool s_autorotate;
 static atomic_bool s_clock24 = true;   /* 24-hour time unless set otherwise */
+static atomic_bool s_aod;   /* always-on display: asleep, the screen dims instead of going dark */
 /* Voice guard, a voice not recognized in a call: a notice, a tone, Muse saying so. */
 static atomic_bool s_vg_on, s_vg_notice = true, s_vg_tone = true, s_vg_explain;
 static atomic_int s_theme = CONFIG_MUSE_DEFAULT_THEME;
@@ -161,6 +162,9 @@ esp_err_t muse_settings_init(void)
     }
     if (nvs_get_u8(s_nvs, "rotate", &b) == ESP_OK) {
         atomic_store(&s_autorotate, b != 0);
+    }
+    if (nvs_get_u8(s_nvs, "aod", &b) == ESP_OK) {
+        atomic_store(&s_aod, b != 0);
     }
     if (nvs_get_u8(s_nvs, "clock24", &b) == ESP_OK) {
         atomic_store(&s_clock24, b != 0);
@@ -259,6 +263,14 @@ void muse_settings_set_autorotate(bool on)
 }
 
 bool muse_settings_clock24(void) { return atomic_load(&s_clock24); }
+
+bool muse_settings_always_on(void) { return atomic_load(&s_aod); }
+
+void muse_settings_set_always_on(bool on)
+{
+    atomic_store(&s_aod, on);
+    save_u8("aod", on);
+}
 
 bool muse_settings_vg_on(void) { return atomic_load(&s_vg_on); }
 bool muse_settings_vg_notice(void) { return atomic_load(&s_vg_notice); }

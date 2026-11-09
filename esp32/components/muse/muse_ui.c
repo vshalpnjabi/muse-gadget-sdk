@@ -1548,8 +1548,13 @@ static void build_screen(void)
 }
 
 
+static bool s_aod_on;          /* asleep, but the always-on display is showing */
+static bool s_cover_pressed;   /* a touch on the sleep cover hasn't lifted yet */
+#define AOD_BRIGHTNESS 5
+
 static void on_cover_event(lv_event_t *e)
 {
+    s_cover_pressed = lv_event_get_code(e) == LV_EVENT_PRESSED;
     if (lv_event_get_code(e) == LV_EVENT_PRESSED) {
         /* Wake on touch; keep the (now clear) cover until release so the tap
          * doesn't land on whatever is underneath. */
@@ -1790,6 +1795,30 @@ bool muse_ui_dark(void)
 static bool update_sleep(void)
 {
     bool asleep = muse_state_asleep();
+    if (asleep && muse_settings_always_on()) {
+        /* Always-on display: the screen stays on, dim, and keeps drawing (the
+         * clock, Muse); a clear cover takes the waking touch. */
+        if (s_dark) {
+            s_dark = false;
+            if (muse_board->panel_sleep) {
+                muse_board->panel_sleep(false);
+            }
+        }
+        if (!s_aod_on) {
+            muse_menu_close();
+            lv_obj_set_style_bg_opa(s_cover, LV_OPA_TRANSP, 0);
+            lv_obj_remove_flag(s_cover, LV_OBJ_FLAG_HIDDEN);
+            s_aod_on = true;
+        }
+        apply_brightness(AOD_BRIGHTNESS);
+        return false;
+    }
+    if (s_aod_on) {
+        s_aod_on = false;
+        if (!asleep && !s_cover_pressed) {
+            lv_obj_add_flag(s_cover, LV_OBJ_FLAG_HIDDEN);   /* woken by a button: nothing to swallow */
+        }
+    }
     if (asleep && !s_dark) {
         muse_menu_close();
         apply_brightness(0);
