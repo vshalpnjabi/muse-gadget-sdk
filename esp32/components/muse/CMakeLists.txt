@@ -92,6 +92,15 @@ if(CONFIG_MUSE_ENABLED)
         list(APPEND srcs "muse_imu.c")   # the motion sensor, for the face
     endif()
     list(APPEND srcs "muse_theme.c")   # the UI's colours
+    if(CONFIG_MUSE_WAKE_WORD)
+        list(APPEND srcs "muse_wake.cpp")   # the wake word (microWakeWord on TFLite Micro)
+        # TensorFlow's microfrontend (Apache-2.0), the features microWakeWord trains on;
+        # KissFFT is compiled inside kiss_fft_int16.cc, in its own namespace.
+        file(GLOB wake_frontend
+            "${CMAKE_CURRENT_LIST_DIR}/wake/microfrontend/tensorflow/lite/experimental/microfrontend/lib/*.c"
+            "${CMAKE_CURRENT_LIST_DIR}/wake/microfrontend/tensorflow/lite/experimental/microfrontend/lib/*.cc")
+        list(APPEND srcs ${wake_frontend})
+    endif()
     if(CONFIG_MUSE_VOICE_GUARD)
         list(APPEND srcs "muse_vg.c")   # shadow-mode speaker check of the mic audio
     endif()
@@ -234,6 +243,16 @@ idf_component_register(
     REQUIRES esp_driver_gpio esp_driver_i2c
     PRIV_REQUIRES ${muse_priv_requires}
 )
+
+if(CONFIG_MUSE_WAKE_WORD)
+    target_include_directories(${COMPONENT_LIB} PRIVATE
+        "${COMPONENT_DIR}/wake/microfrontend" "${COMPONENT_DIR}/wake/microfrontend/kissfft")
+    set_source_files_properties(${wake_frontend} PROPERTIES COMPILE_OPTIONS
+        "-Wno-error;-w;-include;${COMPONENT_DIR}/wake/microfrontend/psram_alloc.h")
+    # The wake word's model, under one name whatever the file: _binary_wake_model_tflite_*.
+    configure_file("${COMPONENT_DIR}/${CONFIG_MUSE_WAKE_MODEL}" "${CMAKE_CURRENT_BINARY_DIR}/wake_model.tflite" COPYONLY)
+    target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_BINARY_DIR}/wake_model.tflite" BINARY)
+endif()
 
 if(muse_photo_avatar)
     # Settings > Appearance offers the picture, and the face can show it.

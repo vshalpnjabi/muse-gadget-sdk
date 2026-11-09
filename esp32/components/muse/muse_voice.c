@@ -47,6 +47,12 @@
 #if CONFIG_MUSE_VG_ENFORCE
 #include "muse_vg.h"
 #endif
+#if CONFIG_MUSE_WAKE_WORD
+#include "muse_wake.h"
+#define WAKE_LISTENING() muse_wake_listening()
+#else
+#define WAKE_LISTENING() false
+#endif
 #include "muse_voice_call_core.h"
 #endif
 
@@ -1329,7 +1335,7 @@ static void voice_task(void *arg)
             muse_input_event_t ev;
             bool asleep = muse_state_asleep();
             bool battery = muse_state_on_battery();
-            bool rest = asleep && battery && !s_chirp && s_sfx < 0 && !s_mp3test && !s_loopback;
+            bool rest = asleep && battery && !s_chirp && s_sfx < 0 && !s_mp3test && !s_loopback && !WAKE_LISTENING();
 #if HOLD_NOTES
             /* A press goes first: send_held() leaves it queued and returns
              * without backing off, so retrying before it's read would spin. */
@@ -1384,6 +1390,21 @@ static void voice_task(void *arg)
             }
             /* The 20 ms read paces this loop. */
             idle_capture();
+#if CONFIG_MUSE_WAKE_WORD && CONFIG_MUSE_REALTIME_VOICE
+            if (muse_wake_take()) {
+                /* The wake word: wake the screen and start a hands-free call. */
+                muse_state_set_asleep(false);
+                muse_state_poke();
+                muse_wifi_power(MUSE_WIFI_FULL);
+                if (muse_voice_call_ready()) run_call(false, 0);
+                else {
+                    if (!muse_wifi_connected()) muse_wifi_apply();
+                    go_idle(not_ready_reason());
+                }
+                pre_reset();
+                continue;
+            }
+#endif
             if (xQueueReceive(s_queue, &ev, 0) != pdTRUE) {
                 continue;
             }

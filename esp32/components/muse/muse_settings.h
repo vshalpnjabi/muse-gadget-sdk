@@ -96,6 +96,9 @@ void muse_settings_set_autorotate(bool on);
 bool muse_settings_clock24(void);
 /* Settings > Appearance > Always-on display: asleep, the screen stays on at 5% (off by default). */
 bool muse_settings_always_on(void);
+/* Settings > Sound > Wake word: the phrase starts a call (off by default). */
+bool muse_settings_wake_word(void);
+void muse_settings_set_wake_word(bool on);
 void muse_settings_set_always_on(bool on);
 void muse_settings_set_clock24(bool on);
 /* Settings > Sound, the voice guard: when a call's voice isn't recognized, show a notice

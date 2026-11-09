@@ -390,6 +390,7 @@ menu "Muse"
     config MUSE_STATIC_BUFFERS_IN_PSRAM
         bool "Keep the avatar's and audio's static buffers in PSRAM"
         depends on MUSE_ENABLED && SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
+        default y if MUSE_BOARD_WAVESHARE_S3_175C   # its link needs 16 KiB DMA headroom
         default n
         help
             Places the zero-initialized statics of the avatar renderer
@@ -467,6 +468,43 @@ menu "Muse"
             Reads the board's QMI8658 on its I2C bus at 50 Hz: tipped, the
             photo face looks toward the low side and leans; shaken, it gets
             dizzy. Costs a small task with its stack in PSRAM.
+
+    config MUSE_WAKE_WORD
+        bool "Wake word: a phrase starts a call"
+        depends on MUSE_BOARD_WAVESHARE_S3_175C
+        default y
+        help
+            A microWakeWord streaming model listens to the idle mic while
+            Settings > Sound > Wake word is on (off by default), and hearing
+            the phrase starts a hands-free call. Listening keeps the mic and
+            CPU awake, asleep and on battery too.
+
+    config MUSE_WAKE_MODEL
+        string "Wake word: model file (in components/muse)"
+        depends on MUSE_WAKE_WORD
+        default "wake/hey_jarvis.tflite"
+
+    config MUSE_WAKE_PHRASE
+        string "Wake word: the phrase, as shown"
+        depends on MUSE_WAKE_WORD
+        default "Hey Jarvis"
+
+    config MUSE_WAKE_CUTOFF
+        int "Wake word: probability cutoff (percent)"
+        depends on MUSE_WAKE_WORD
+        range 50 99
+        default 97
+
+    config MUSE_WAKE_WINDOW
+        int "Wake word: probabilities averaged (sliding window)"
+        depends on MUSE_WAKE_WORD
+        range 1 16
+        default 5
+
+    config MUSE_WAKE_ARENA
+        int "Wake word: tensor arena bytes (PSRAM)"
+        depends on MUSE_WAKE_WORD
+        default 40000
 
     config MUSE_VOICE_GUARD
         bool "Voice guard (shadow mode): check who's speaking"

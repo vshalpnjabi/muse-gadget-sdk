@@ -15,6 +15,9 @@
  */
 
 #include "muse_audio.h"
+#if CONFIG_MUSE_WAKE_WORD
+#include "muse_wake.h"
+#endif
 #if CONFIG_MUSE_VOICE_GUARD
 #include "muse_vg.h"
 #endif
@@ -464,6 +467,9 @@ esp_err_t muse_audio_read(int16_t *mono, size_t frames)
         }
 #if CONFIG_MUSE_VOICE_GUARD
         muse_vg_tee(mono, n);   /* a copy, as handed on; never waits */
+#endif
+#if CONFIG_MUSE_WAKE_WORD
+        muse_wake_feed(mono, n);   /* likewise, while it listens */
 #endif
         mono += n;
         frames -= n;

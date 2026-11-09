@@ -21,6 +21,9 @@
 #include "freertos/task.h"
 
 #include "muse_audio.h"
+#if CONFIG_MUSE_WAKE_WORD
+#include "muse_wake.h"
+#endif
 #if CONFIG_MUSE_VOICE_GUARD
 #include "muse_vg.h"
 #endif
@@ -131,6 +134,9 @@ void muse_app_run(const muse_board_t *board)
         muse_state_set_caption("%s", "");   /* the button icons say how to talk */
     }
 
+#if CONFIG_MUSE_WAKE_WORD
+    muse_wake_start();   /* after audio has its DMA buffers; listens only while the setting's on */
+#endif
     muse_hatch_start();
     /* Home Link owns the radios; these just hand it the saved settings. */
     muse_wifi_apply();

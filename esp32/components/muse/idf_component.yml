@@ -16,6 +16,11 @@ dependencies:
   idf:
     version: ">=5.5"
   espressif/cjson: "~1.7"
+  # The wake word's model runtime and audio frontend (muse_wake.cpp).
+  espressif/esp-tflite-micro:
+    version: "~1.4"
+    rules:
+      - if: "$CONFIG{MUSE_WAKE_WORD} == True"
   # Video over Wi-Fi announces itself with it (muse_video_wifi.c).
   espressif/mdns:
     version: "^1.8"

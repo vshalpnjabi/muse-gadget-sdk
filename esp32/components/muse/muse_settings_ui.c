@@ -1551,6 +1551,13 @@ static void on_cal_open(lv_event_t *e)
 }
 #endif
 
+#if CONFIG_MUSE_WAKE_WORD
+static void on_wake_sw(lv_event_t *e)
+{
+    muse_settings_set_wake_word(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
+}
+#endif
+
 static void build_sound_page(lv_obj_t *tile)
 {
     lv_obj_t *list;
@@ -1580,6 +1587,10 @@ static void build_sound_page(lv_obj_t *tile)
         set_val(s_boost_val, "+%d dB", muse_settings_speaker_boost());
     }
     s_gain_sl = slider(list, "Mic gain", 0, MUSE_MIC_GAIN_MAX / 3, muse_settings_mic_gain() / 3, &s_gain_val, on_gain);
+#if CONFIG_MUSE_WAKE_WORD
+    switch_row(list, "Wake word", muse_settings_wake_word(), on_wake_sw);
+    note(list, "Say \"" CONFIG_MUSE_WAKE_PHRASE "\" to start a call. Listening uses more battery.");
+#endif
 #if CONFIG_MUSE_VOICE_GUARD
     if (muse_vg_running()) {
         switch_row(list, "Voice recognition", muse_settings_vg_on(), on_vg_on_sw);
