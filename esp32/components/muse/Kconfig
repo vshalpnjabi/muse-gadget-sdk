@@ -482,18 +482,18 @@ menu "Muse"
     config MUSE_WAKE_MODEL
         string "Wake word: model file (in components/muse)"
         depends on MUSE_WAKE_WORD
-        default "wake/hey_jarvis.tflite"
+        default "wake/hey_vi.tflite"
 
     config MUSE_WAKE_PHRASE
         string "Wake word: the phrase, as shown"
         depends on MUSE_WAKE_WORD
-        default "Hey Jarvis"
+        default "Hey Vi"
 
     config MUSE_WAKE_CUTOFF
         int "Wake word: probability cutoff (percent)"
         depends on MUSE_WAKE_WORD
         range 50 99
-        default 97
+        default 98
 
     config MUSE_WAKE_WINDOW
         int "Wake word: probabilities averaged (sliding window)"
