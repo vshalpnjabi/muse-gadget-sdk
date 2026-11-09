@@ -42,16 +42,16 @@
 #endif
 #include "muse_state.h"
 #include "muse_wifi.h"
-#if CONFIG_MUSE_REALTIME_VOICE
-#include "muse_voice_call.h"
-#if CONFIG_MUSE_VG_ENFORCE
-#include "muse_vg.h"
-#endif
 #if CONFIG_MUSE_WAKE_WORD
 #include "muse_wake.h"
 #define WAKE_LISTENING() muse_wake_listening()
 #else
 #define WAKE_LISTENING() false
+#endif
+#if CONFIG_MUSE_REALTIME_VOICE
+#include "muse_voice_call.h"
+#if CONFIG_MUSE_VG_ENFORCE
+#include "muse_vg.h"
 #endif
 #include "muse_voice_call_core.h"
 #endif
