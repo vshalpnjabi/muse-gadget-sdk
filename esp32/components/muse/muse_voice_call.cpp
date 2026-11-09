@@ -1493,6 +1493,7 @@ extern "C" void muse_voice_call_start(void)
     }
     v_call = true;
     v_ptt = v_talking = v_overflow = false;
+    s_guard_note.store(0);   /* a new call starts grey: no note left from the last one */
     drain_out();
     s_flush_ack.store(s_flush_req.load());
     publish_start(false);
@@ -1505,6 +1506,7 @@ extern "C" void muse_voice_call_start_ptt(void)
     }
     v_call = v_ptt = v_talking = true;
     v_overflow = false;
+    s_guard_note.store(0);   /* a new call starts grey: no note left from the last one */
     v_press = s_press_req.fetch_add(1) + 1;
     drain_out();
     s_flush_ack.store(s_flush_req.load());
