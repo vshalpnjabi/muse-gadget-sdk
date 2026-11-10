@@ -1554,6 +1554,9 @@ static bool s_cover_pressed;   /* a touch on the sleep cover hasn't lifted yet *
 
 static void on_cover_event(lv_event_t *e)
 {
+    if (muse_state_held_asleep()) {
+        return;   /* asleep by a button: a touch doesn't wake it */
+    }
     s_cover_pressed = lv_event_get_code(e) == LV_EVENT_PRESSED;
     if (lv_event_get_code(e) == LV_EVENT_PRESSED) {
         /* Wake on touch; keep the (now clear) cover until release so the tap
@@ -1795,7 +1798,7 @@ bool muse_ui_dark(void)
 static bool update_sleep(void)
 {
     bool asleep = muse_state_asleep();
-    if (asleep && muse_settings_always_on()) {
+    if (asleep && muse_settings_always_on() && !muse_state_held_asleep()) {
         /* Always-on display: the screen stays on, dim, and keeps drawing (the
          * clock, Muse); a clear cover takes the waking touch. */
         if (s_dark) {

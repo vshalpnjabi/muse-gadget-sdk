@@ -74,7 +74,8 @@ static int s_stride;
 
 extern "C" bool muse_wake_listening(void)
 {
-    return s_ready.load() && muse_settings_wake_word();
+    /* Not while a button keeps it asleep: then only a button wakes it. */
+    return s_ready.load() && muse_settings_wake_word() && !muse_state_held_asleep();
 }
 
 extern "C" void muse_wake_feed(const int16_t *pcm, size_t frames)

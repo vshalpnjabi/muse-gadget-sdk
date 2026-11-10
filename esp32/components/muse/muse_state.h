@@ -98,6 +98,11 @@ float muse_state_idle_secs(void);
 /* Screen sleep (display dark, rendering paused). Waking also pokes. */
 void muse_state_set_asleep(bool asleep);
 bool muse_state_asleep(void);
+/* Asleep by a button press (not auto-sleep): only a button wakes it. Other
+ * wake requests (touch, images, the wake word, video) are ignored meanwhile,
+ * and the always-on display goes dark. The input task clears it on a press. */
+void muse_state_hold_asleep(bool held);
+bool muse_state_held_asleep(void);
 /* For a task with nothing to do asleep: returns once awake, nudged
  * (muse_state_nudge, which doesn't wake the screen) or timeout_ms passes. */
 void muse_state_wait_awake(uint32_t timeout_ms);

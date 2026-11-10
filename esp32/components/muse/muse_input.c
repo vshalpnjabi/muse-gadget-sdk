@@ -169,6 +169,9 @@ static void power_off(void)
 
 static void set_asleep(bool asleep, const char *why)
 {
+    if (!asleep) {
+        muse_state_hold_asleep(false);   /* a button (or pairing): it may wake */
+    }
     if (asleep != muse_state_asleep()) {
         ESP_LOGI(TAG, "%s (%s)", asleep ? "sleeping" : "waking", why);
         muse_state_set_asleep(asleep);
@@ -220,6 +223,7 @@ static void aux_button(bool pressed, bool edge)
 
     if (sleep_in && --sleep_in == 0) {
         set_asleep(true, muse_board->aux_button);
+        muse_state_hold_asleep(true);   /* put to sleep by hand: only a button wakes it */
     }
     if (edge && pressed) {
         held = 0;

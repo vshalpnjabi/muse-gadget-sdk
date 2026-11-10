@@ -30,6 +30,7 @@ BaseType_t xQueueSend(QueueHandle_t q,const void *p,TickType_t t) {
 bool muse_settings_speaker_on(void) { return speaker; }
 void muse_settings_set_speaker_on(bool v) { speaker=v; ++speaker_toggles; }
 void muse_state_set_asleep(bool v) { asleep=v; slept+=v; }
+void muse_state_hold_asleep(bool v) { (void)v; }
 bool muse_state_asleep(void) { return asleep; }
 bool muse_state_on_battery(void) { return false; }
 void muse_state_poke(void) {}

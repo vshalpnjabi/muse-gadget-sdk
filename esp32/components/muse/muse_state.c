@@ -260,8 +260,23 @@ float muse_state_idle_secs(void)
     return secs_since(s_last_poke_us);
 }
 
+static volatile bool s_held_asleep;   /* put to sleep by a button: only a button wakes it */
+
+void muse_state_hold_asleep(bool held)
+{
+    s_held_asleep = held;
+}
+
+bool muse_state_held_asleep(void)
+{
+    return s_held_asleep && s_asleep;
+}
+
 void muse_state_set_asleep(bool asleep)
 {
+    if (!asleep && s_held_asleep && s_asleep) {
+        return;   /* touch, an image, the wake word...: not while a button keeps it asleep */
+    }
     if (!asleep) {
         muse_state_poke();
     }
