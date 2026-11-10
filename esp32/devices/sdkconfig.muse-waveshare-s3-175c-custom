@@ -1,0 +1,39 @@
+# This fork's Waveshare ESP32-S3-Touch-AMOLED-1.75C build (CUSTOMIZATIONS.md):
+# applied after devices/sdkconfig.muse-waveshare-s3-175c by tools/muse/board.sh.
+# Secrets (the voice guard token) go in sdkconfig.muse-waveshare-s3-175c.local,
+# which git ignores; see sdkconfig.muse-waveshare-s3-175c.local.example.
+
+# Live voice calls with Muse, push-to-talk on the one button, Muse greets first.
+CONFIG_MUSE_REALTIME_VOICE=y
+CONFIG_MUSE_REALTIME_VOICE_GREETING=y
+CONFIG_MUSE_PTT_CALLS=y
+# Speaker boost ceiling (Settings > Sound > Speaker boost goes up to it).
+CONFIG_MUSE_SPEAKER_MAX_DB=12
+
+# The face: touch sounds, a fixed avatar size under captions.
+CONFIG_MUSE_UI_TOUCH_SOUNDS=y
+CONFIG_MUSE_UI_FIXED_AVATAR=y
+
+# Clock, sleep hours and do not disturb; the time zone (POSIX TZ).
+CONFIG_MUSE_CLOCK=y
+CONFIG_MUSE_TIMEZONE="PST8PDT,M3.2.0,M11.1.0"
+# Motion sensor (QMI8658): tilt, shake, auto-rotate.
+CONFIG_MUSE_IMU=y
+
+# Voice guard (speaker verification): the relay's bases and speaker.
+CONFIG_MUSE_VOICE_GUARD=y
+CONFIG_MUSE_VG_ENFORCE=y
+CONFIG_MUSE_VG_HOME_BASE="http://192.168.1.214:8792"
+CONFIG_MUSE_VG_AWAY_BASE="https://vpmacmini.tail94daa8.ts.net/vg"
+CONFIG_MUSE_VG_SPEAKER="vishal"
+
+# Wake word "Hey Vi" (components/muse/wake/README.md).
+CONFIG_MUSE_WAKE_WORD=y
+CONFIG_MUSE_WAKE_MODEL="wake/hey_vi.tflite"
+CONFIG_MUSE_WAKE_PHRASE="Hey Vi"
+CONFIG_MUSE_WAKE_CUTOFF=98
+CONFIG_MUSE_WAKE_WINDOW=5
+CONFIG_MUSE_WAKE_ARENA=40000
+
+# Internal RAM for the link's DMA headroom: the avatar's and audio's statics in PSRAM.
+CONFIG_MUSE_STATIC_BUFFERS_IN_PSRAM=y

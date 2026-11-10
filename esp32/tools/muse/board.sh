@@ -105,6 +105,9 @@ if [ -n "${MUSE_BENCH:-}" ]; then
     B=$B-bench; defaults="$defaults;devices/sdkconfig.muse-bench"
 fi
 [ -n "${iris:-}" ] && defaults="$defaults;devices/sdkconfig.muse-$profile-iris"
+# This fork's features for the board, then local secrets (git-ignored), when present.
+[ -f "devices/sdkconfig.muse-$profile-custom" ] && defaults="$defaults;devices/sdkconfig.muse-$profile-custom"
+[ -f "devices/sdkconfig.muse-$profile.local" ] && defaults="$defaults;devices/sdkconfig.muse-$profile.local"
 log=/tmp/muse_build_$board.log
 # ESP-Mosaico: its Vibe Mode firmware installs an ESP-Iris System Update
 # bundle (the app and this partition table; never the bootloader or the

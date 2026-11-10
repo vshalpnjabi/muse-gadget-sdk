@@ -14,7 +14,51 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# Muse Gadgets
+# Muse Gadget — Waveshare 1.75C fork
+
+A personal fork of [facebookincubator/muse-gadget-sdk](https://github.com/facebookincubator/muse-gadget-sdk)
+that turns a **Waveshare ESP32-S3-Touch-AMOLED-1.75C** into a richer Muse companion:
+live voice calls with push-to-talk on its one button, a living photo of Muse as the face,
+themes, a clock with sleep hours and do-not-disturb, motion reactions, an always-on
+display, speaker verification (voice guard) and an on-device **"Hey Vi"** wake word.
+
+**[CUSTOMIZATIONS.md](CUSTOMIZATIONS.md)** lists every feature and change on top of `main`,
+with where it lives and how it's configured. **[HANDOVER.md](HANDOVER.md)** is the
+working state: what's done, what's open, and how to pick it up.
+
+## Highlights
+
+- **Calls**: hands-free or hold-to-talk on one button; captions in step with Muse's voice;
+  a ready beep and a soft hang-up blip.
+- **Face**: Muse's photo from the app, alive (blinks, lip sync, touch reactions with sounds,
+  tilt and shake reactions), or the pixel-art avatar.
+- **Look**: themes (including one matching Vi in the Muse app), auto-rotate, brightness,
+  always-on display at 5%.
+- **Time**: clock (24-hour by default), sleep hours on one dial, do not disturb; Muse can
+  set them for you.
+- **Voice guard**: checks a call's voice is the owner's via a verification relay; only an
+  unrecognized voice is held back, with an optional notice, tone and a polite spoken refusal
+  from Muse; on-device voice calibration.
+- **Wake word**: "Hey Vi" on the board (microWakeWord on TensorFlow Lite Micro, 51 KB model),
+  trained with a generic pipeline for any phrase.
+
+## Build and flash (1.75C)
+
+```sh
+cd esp32
+# Optional: the voice guard's token (git-ignored)
+cp devices/sdkconfig.muse-waveshare-s3-175c.local.example devices/sdkconfig.muse-waveshare-s3-175c.local
+IDF_EXPORT=~/esp/esp-idf-v6.0.3/export.sh tools/muse/board.sh build s3
+IDF_EXPORT=~/esp/esp-idf-v6.0.3/export.sh tools/muse/board.sh flash s3 /dev/cu.usbmodem101
+```
+
+ESP-IDF v6.0.3. The board's fork options are in
+[`esp32/devices/sdkconfig.muse-waveshare-s3-175c-custom`](esp32/devices/sdkconfig.muse-waveshare-s3-175c-custom);
+see [`esp32/README.md`](esp32/README.md) for the SDK itself, pairing and other boards.
+
+---
+
+## Upstream: Muse Gadgets
 
 <p align="center">
   <picture>
@@ -56,7 +100,7 @@ USB-free sweep. The isolated diagnostic does not pair or need an SDK token;
 fixture safety and explicit hardware authorization still come first, as the
 [PPK2 rules](esp32/docs/power/ppk2.md) describe.
 
-## Community
+### Community
 
 Meet other hackers who are building and customizing Muse gadgets in our
 community [Discord](https://discord.gg/3bhjCkZdd6). Get inspired, support each
@@ -82,6 +126,9 @@ upstream licenses:
 | [`esp32/main/epd_ssd1677.c`](esp32/main/epd_ssd1677.c) | Seeed-reTerminal-E10xx-Firmware's SSD1677 refresh sequence | MIT, retained in the file header |
 | [`esp32/components/tinyh264/src`](esp32/components/tinyh264) | the Android Open Source Project's H.264 decoder, via [udevbe/tinyh264](https://github.com/udevbe/tinyh264) | Apache-2.0, AOSP's copyright, see [`LICENSE`](esp32/components/tinyh264/LICENSE) |
 | [`esp32/components/libvpx_vp8/src`](esp32/components/libvpx_vp8) | [libvpx](https://chromium.googlesource.com/webm/libvpx) v1.16.0's VP8 decoder, trimmed | BSD-3-Clause, the WebM Project authors' copyright, see [`LICENSE`](esp32/components/libvpx_vp8/LICENSE), with Google's patent grant in [`PATENTS`](esp32/components/libvpx_vp8/PATENTS) |
+| [`esp32/components/muse/wake/microfrontend`](esp32/components/muse/wake/microfrontend) | TensorFlow Lite Micro's audio microfrontend, with KissFFT | Apache-2.0 (TensorFlow, see [`LICENSE`](esp32/components/muse/wake/microfrontend/LICENSE)); KissFFT BSD-3-Clause, in its headers |
+| [`esp32/components/muse/wake/hey_jarvis.tflite`](esp32/components/muse/wake) | ESPHome [micro-wake-word-models](https://github.com/esphome/micro-wake-word-models) | Apache-2.0 |
+| [`esp32/components/muse/wake/hey_vi.tflite`](esp32/components/muse/wake) | Trained here with [microWakeWord](https://github.com/kahrendt/microWakeWord) on Piper TTS samples and AudioSet / FMA / MIT RIR / microWakeWord negative data | Mixed dataset licences: personal, non-commercial use |
 
 Dependencies fetched at build time are under their own licenses: ESP-IDF
 components (into `esp32/managed_components/`), and the simulator's LVGL and
