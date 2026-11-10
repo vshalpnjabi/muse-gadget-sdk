@@ -437,6 +437,14 @@ their upstream licenses:
   copyright, with Google's patent grant. See
   [`components/libvpx_vp8/LICENSE`](components/libvpx_vp8/LICENSE) and
   [`PATENTS`](components/libvpx_vp8/PATENTS).
+- [`components/muse/wake/microfrontend`](components/muse/wake/microfrontend),
+  the wake word's audio features, is TensorFlow Lite Micro's microfrontend
+  (Apache-2.0, see its [`LICENSE`](components/muse/wake/microfrontend/LICENSE))
+  with KissFFT (BSD-3-Clause, in its headers).
+- [`components/muse/wake`](components/muse/wake) models: `hey_jarvis.tflite`
+  is ESPHome's micro-wake-word-models (Apache-2.0); `hey_vi.tflite` was trained
+  with microWakeWord on datasets with mixed licences, for personal,
+  non-commercial use.
 
 ESP-IDF components fetched at build time (into `managed_components/`) are
 under their own licenses.

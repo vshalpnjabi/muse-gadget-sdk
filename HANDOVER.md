@@ -44,7 +44,8 @@ Read this first in a new session. Feature list: [CUSTOMIZATIONS.md](CUSTOMIZATIO
   - `~/Projects/muse-wakeword/` — generic wake-word training (`setup.sh`,
     `train_wakeword.py`, `wakeword.yaml`, `README.md`), venv `.venv` (Python 3.11),
     shared data `data/` (~26 GB), per-phrase work `work/hey_vi/`, outputs `out/`.
-    Not a git repo.
+    Git repo: github.com/vshalpnjabi/muse-wakeword (private, `main`); data, venv and
+    third-party clones are git-ignored and recreated by `setup.sh` / the data stage.
   - Voice guard relay + token on the Mac mini (`~/voice-guardrail/token.txt`).
 - **Background jobs**: none.
 

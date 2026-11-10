@@ -90,7 +90,7 @@ The token is never committed: `devices/sdkconfig.muse-waveshare-s3-175c.local`.
 | Wake word setting | Settings > Sound > Wake word (off by default): saying the phrase wakes the screen and starts a hands-free call; listens asleep and on battery. | `muse_wake.cpp`, `CONFIG_MUSE_WAKE_WORD` |
 | Engine | microWakeWord streaming int8 model on TensorFlow Lite Micro (`espressif/esp-tflite-micro`), TensorFlow's microfrontend features (vendored, Apache-2.0); arena, tables, interpreter and task in PSRAM (~300 B internal RAM). | `muse_wake.cpp`, `wake/microfrontend/` |
 | Model | `wake/hey_vi.tflite`, 51,312 bytes, arena 24,044 B, cutoff 0.98, window 5. First model (synthetic voices): AUC 0.805; at 0.98 → 23% misses, 0.94 false wakes/hour. `hey_jarvis.tflite` kept as a reference. | `wake/README.md` |
-| Training pipeline | Generic, any phrase from a YAML config: `~/Projects/muse-wakeword` (`train_wakeword.py --config <phrase>.yaml`). Not in this repo. | — |
+| Training pipeline | Generic, any phrase from a YAML config: [vshalpnjabi/muse-wakeword](https://github.com/vshalpnjabi/muse-wakeword) (private; `train_wakeword.py --config <phrase>.yaml`), checked out at `~/Projects/muse-wakeword`. | — |
 
 ## 8. Memory (internal RAM)
 

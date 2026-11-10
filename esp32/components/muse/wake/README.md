@@ -15,7 +15,8 @@ build embeds the one named by `CONFIG_MUSE_WAKE_MODEL`.
   sliding window 5, tensor arena 22860 bytes.
 
 Custom phrases (e.g. "Hey Vi") are trained with the generic pipeline in
-`~/Projects/muse-wakeword` (`train_wakeword.py --config <phrase>.yaml`), which
+[vshalpnjabi/muse-wakeword](https://github.com/vshalpnjabi/muse-wakeword)
+(`train_wakeword.py --config <phrase>.yaml`), which
 writes `out/<name>.tflite` and `out/<name>.json`; copy the model here and set
 `CONFIG_MUSE_WAKE_MODEL`, `CONFIG_MUSE_WAKE_PHRASE`, `CONFIG_MUSE_WAKE_CUTOFF`,
 `CONFIG_MUSE_WAKE_WINDOW` and `CONFIG_MUSE_WAKE_ARENA` from its JSON.
