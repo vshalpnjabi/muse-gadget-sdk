@@ -4,5 +4,13 @@
 # Muse SDK token (mgst_..., from gadgets.muse.ai > Account > SDK tokens): every build needs it.
 CONFIG_GADGET_SDK_TOKEN=""
 
-# Voice guard token: the relay's X-VG-Token (on the Mac mini: ~/voice-guardrail/token.txt).
+# Voice guard: the relay's X-VG-Token, its addresses (home first, then HTTPS) and
+# the enrolled speaker. With no token, speaker or address it stays off.
 CONFIG_MUSE_VG_TOKEN=""
+CONFIG_MUSE_VG_HOME_BASE="http://192.168.1.10:8792"
+CONFIG_MUSE_VG_AWAY_BASE="https://relay.example.ts.net/vg"
+CONFIG_MUSE_VG_SPEAKER="me"
+
+# Your avatar files (muse_pixel.c, muse_photo_img.c), kept outside the repository
+# so every checkout builds with them. Empty: components/muse/avatar/.
+CONFIG_MUSE_AVATAR_DIR=""

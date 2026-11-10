@@ -260,6 +260,9 @@ static const char *base_url(int base)
 /* One request on base's kept-alive client; the HTTP status, or -1. The reply is in s_resp. */
 static int request(int base, bool post, const char *path, const void *body, int len)
 {
+    if (!base_url(base)[0]) {
+        return -1;   /* that base isn't set: the other one serves */
+    }
     char url[256];
     snprintf(url, sizeof(url), "%s%s", base_url(base), path);
     if (!s_cli[base]) {
@@ -721,8 +724,9 @@ static void vg_task(void *arg)
 
 void muse_vg_start(void)
 {
-    if (!CONFIG_MUSE_VG_TOKEN[0]) {
-        ESP_LOGW(TAG, "voice guard on, but no token is set (menuconfig): nothing is sent");
+    if (!CONFIG_MUSE_VG_TOKEN[0] || !CONFIG_MUSE_VG_SPEAKER[0] ||
+        (!CONFIG_MUSE_VG_HOME_BASE[0] && !CONFIG_MUSE_VG_AWAY_BASE[0])) {
+        ESP_LOGW(TAG, "voice guard on, but its token, speaker or base URL isn't set (menuconfig): nothing is sent");
         return;
     }
     /* The lock first: the tee only looks at the ring once it's published. */
@@ -741,5 +745,6 @@ void muse_vg_start(void)
     atomic_store(&s_running, true);
     ESP_LOGI(TAG, "voice guard (%s): speaker %s, home %s, away %s",
              VG_MODE_NAME, CONFIG_MUSE_VG_SPEAKER,
-             CONFIG_MUSE_VG_HOME_BASE, CONFIG_MUSE_VG_AWAY_BASE);
+             CONFIG_MUSE_VG_HOME_BASE[0] ? CONFIG_MUSE_VG_HOME_BASE : "(none)",
+             CONFIG_MUSE_VG_AWAY_BASE[0] ? CONFIG_MUSE_VG_AWAY_BASE : "(none)");
 }

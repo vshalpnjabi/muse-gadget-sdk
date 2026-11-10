@@ -14,10 +14,11 @@
 # limitations under the License.
 """Turns a picture (the Muse app's portrait of your Muse) into the photo avatar.
 
-    python3 tools/muse/photo_avatar.py PICTURE [--side 320]
+    python3 tools/muse/photo_avatar.py PICTURE [--side 320] [--out FOLDER]
 
-writes components/muse/avatar/muse_photo_img.c (gitignored, like your drawn
-avatar), which the next build picks up: Settings > Appearance then offers the
+writes muse_photo_img.c into FOLDER (by default components/muse/avatar/,
+gitignored like your drawn avatar; point CONFIG_MUSE_AVATAR_DIR at any other
+folder you use), which the next build picks up: Settings > Appearance then offers the
 picture beside the pixel art, and shows it by default. The picture is made
 square (centre crop), cut to head and shoulders, resized to SIDE (the face's
 size on a 466 px screen is 320), its plain light backdrop turned black, and
@@ -264,6 +265,32 @@ def face_patches(im, eyes, eye_size, mouth):
     return [(x, y, p.size[0], p.size[1], p) for x, y, p in out]
 
 
+def face_layout(side, eyes, eye_size, mouth, chin):
+    """The touch zones and the head's extent, 0..1, from the eyes and mouth found
+    in the result. None without both: the board's defaults stand."""
+    if not (eyes and mouth):
+        return None
+    clamp = lambda x: max(0.0, min(1.0, x))
+    lx, ly, rx, ry = (c / side for c in eyes)
+    mx, my = (c / side for c in mouth)
+    ey = (ly + ry) / 2
+    eh = eye_size[1] / side
+    gap = abs(rx - lx)
+    head_chin = clamp(chin / side if chin is not None else my + 0.6 * (my - ey))
+    return {
+        "hair_end": clamp(ey - eh - 0.6 * gap),
+        "eyes_end": clamp(ey + eh + 0.08),
+        "eyes_u0": clamp(min(lx, rx) - 0.5 * gap),
+        "eyes_u1": clamp(max(lx, rx) + 0.5 * gap),
+        "face_end": clamp((my + head_chin) / 2),
+        "chin_end": clamp(head_chin + 0.08),
+        "chin_u0": clamp(mx - 0.6 * gap),
+        "chin_u1": clamp(mx + 0.6 * gap),
+        "head_chin": head_chin,
+        "neck_end": clamp(head_chin + 0.12),
+    }
+
+
 def _rgb565(im):
     raw = im.tobytes()   # RGB, row by row
     return [(raw[i] >> 3) << 11 | (raw[i + 1] >> 2) << 5 | (raw[i + 2] >> 3) for i in range(0, len(raw), 3)]
@@ -291,6 +318,11 @@ def main():
                                    "the board then blinks them, and squints them happily when you pet it")
     ap.add_argument("--eye-size", default="14,8", help="half width and half height of an eye's opening (default 14,8)")
     ap.add_argument("--mouth", help="the mouth's centre in the result, X,Y: the board then opens it as Muse talks")
+    ap.add_argument("--chin", type=float,
+                    help="the chin's bottom in the result, Y pixels: a head shake moves what's above it "
+                         "(default: a little below the mouth, or the default crop's)")
+    ap.add_argument("--out", help="the folder to write muse_photo_img.c into (default components/muse/avatar; "
+                                  "set CONFIG_MUSE_AVATAR_DIR to it if it's another)")
     args = ap.parse_args()
     try:
         from PIL import Image
@@ -341,8 +373,10 @@ def main():
             sheet.paste(frame, (im.size[0] * (k + 1), 0))
         sheet.save(args.preview)
     px = _rgb565(im)
-    os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    with open(OUT, "w", encoding="utf-8") as f:
+    out = os.path.join(os.path.abspath(args.out), "muse_photo_img.c") if args.out else OUT
+    layout = face_layout(args.side, eyes, nums(args.eye_size, 2, "--eye-size"), mouth, args.chin)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, "w", encoding="utf-8") as f:
         f.write("/* Made by tools/muse/photo_avatar.py from %s. Yours: gitignored. */\n"
                 % os.path.basename(args.picture))
         f.write('#include "muse_photo.h"\n\n')
@@ -367,7 +401,13 @@ def main():
             f.write("    { MUSE_PHOTO_PATCH_NONE, 0, 0, 0, 0, 0 },\n")
         f.write("};\n")
         f.write(f"const int muse_photo_patch_count = {len(patches)};\n")
-    print(f"Wrote {os.path.relpath(OUT, ROOT)}: {args.side} x {args.side}, {len(px) * 2} bytes")
+        if layout:
+            f.write("\n/* where the face's parts are, 0..1 (muse_photo.h) */\n")
+            f.write("const muse_photo_layout_t muse_photo_layout = {\n")
+            f.write("".join(f"    .{k} = {v:.3f}f,\n" for k, v in layout.items()))
+            f.write("};\n")
+    print(f"Wrote {out}: {args.side} x {args.side}, {len(px) * 2} bytes"
+          + ("" if layout else " (default face layout: give --eyes and --mouth to fit touches to this face)"))
 
 
 if __name__ == "__main__":

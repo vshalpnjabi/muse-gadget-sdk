@@ -41,9 +41,15 @@
 #define VIEW_SHARE 1.0f
 #define FOCUS_X 0.50f
 #define FOCUS_Y 0.50f
-/* Where the head ends in photo_avatar.py's crop: the chin, and the neck's foot. */
-#define HEAD_CHIN 0.54f
-#define HEAD_NECK_END 0.66f
+/* The face's parts in photo_avatar.py's default crop, for a muse_photo_img.c
+ * made before it wrote its own muse_photo_layout. */
+__attribute__((weak)) const muse_photo_layout_t muse_photo_layout = {
+    .hair_end = 0.27f, .eyes_end = 0.43f, .eyes_u0 = 0.25f, .eyes_u1 = 0.75f, .face_end = 0.56f,
+    .chin_end = 0.66f, .chin_u0 = 0.3f, .chin_u1 = 0.7f, .head_chin = 0.54f, .neck_end = 0.66f,
+};
+#define LAYOUT muse_photo_layout
+#define HEAD_CHIN LAYOUT.head_chin
+#define HEAD_NECK_END LAYOUT.neck_end
 
 static int s_size = 320;
 /* What's shown: zoom in 1/1024 steps, offsets in half pixels, brightness in 1/16. */
@@ -233,20 +239,20 @@ int muse_photo_touch(float u, float v, float now)
     if (now - s_tap_at[0] < 1.5f) {
         s_reaction = REACT_SHAKE;                        /* three quick taps: a playful no-no */
         sfx = MUSE_SFX_CHIRP_DOWN;
-    } else if (v < 0.27f) {
+    } else if (v < LAYOUT.hair_end) {
         s_reaction = alt ? REACT_HAPPY : REACT_RUFFLE;   /* the hair */
         sfx = MUSE_SFX_SPARKLE;
         s_spawn_kind = PART_SPARKLE;
         s_spawn_n = 4;
-    } else if (v < 0.43f && u > 0.25f && u < 0.75f) {
+    } else if (v < LAYOUT.eyes_end && u > LAYOUT.eyes_u0 && u < LAYOUT.eyes_u1) {
         s_reaction = alt ? REACT_SURPRISE : u < 0.5f ? REACT_WINK_L : REACT_WINK_R;   /* an eye */
         sfx = alt ? MUSE_SFX_BOING : MUSE_SFX_BIP_BOOP;
-    } else if (v < 0.56f) {
+    } else if (v < LAYOUT.face_end) {
         s_reaction = alt ? REACT_HAPPY : REACT_GIGGLE;   /* cheeks, nose, mouth */
         sfx = MUSE_SFX_GIGGLE;
         s_spawn_kind = PART_HEART;
         s_spawn_n = 3;
-    } else if (v < 0.66f && u > 0.3f && u < 0.7f) {
+    } else if (v < LAYOUT.chin_end && u > LAYOUT.chin_u0 && u < LAYOUT.chin_u1) {
         s_reaction = REACT_NOD;                          /* the chin: yes */
         sfx = MUSE_SFX_CHIRP_UP;
         s_spawn_kind = PART_HEART;

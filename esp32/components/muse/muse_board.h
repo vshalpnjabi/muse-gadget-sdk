@@ -109,6 +109,10 @@ typedef struct {
     /* Power rails, buses, expanders. Runs first. */
     esp_err_t (*init)(void);
 
+    /* The i2c_master_bus_handle_t a QMI8658 motion sensor is on, once init
+     * has run (CONFIG_MUSE_BOARD_HAS_QMI8658, CONFIG_MUSE_IMU); NULL: none. */
+    void *(*imu_bus)(void);
+
     /* Starts the panel, LVGL and its task; *touch may be left NULL. */
     lv_display_t *(*display_start)(lv_indev_t **touch);
     bool (*display_lock)(int timeout_ms);   /* -1 waits forever */

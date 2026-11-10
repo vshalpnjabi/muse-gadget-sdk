@@ -6,8 +6,12 @@ one physical button, QMI8658 motion sensor, ES8311/ES7210 audio). Almost all cod
 `esp32/components/muse/`; the board's build switches are in
 [`esp32/devices/sdkconfig.muse-waveshare-s3-175c-custom`](esp32/devices/sdkconfig.muse-waveshare-s3-175c-custom).
 
-Most features are behind Kconfig options that default **off** upstream, so other boards
-are unaffected; the `-custom` overlay turns them on for the 1.75C.
+Every feature is behind a Kconfig option that defaults **off**, so other boards are
+unaffected until they ask. Nothing personal is in a default: the `-custom` overlay turns
+the features on for the 1.75C with this owner's names and choices, the git-ignored
+`.local` holds tokens, the voice guard's relay and the avatar folder, and
+[`devices/sdkconfig.muse-features`](esp32/devices/sdkconfig.muse-features) turns the
+same features on for any board with nothing personal (`MUSE_FEATURES=1`, section 11).
 
 ---
 
@@ -51,7 +55,7 @@ Measured: the board sends the call request ~10–30 ms after a tap; Muse's serve
 
 | Feature | Details | Where |
 |---|---|---|
-| Themes | Settings > Appearance > Theme: **Muse** (matches Vi in the Muse app), Purple, Blue, Green, Orange, Pink, Mono; icons and settings follow. | `muse_theme.c` |
+| Themes | Settings > Appearance > Theme: **Muse** (the Muse app's own look), Purple, Blue, Green, Orange, Pink, Mono; icons and settings follow. | `muse_theme.c` |
 | Brightness | In Appearance as well as Sound. | `muse_settings_ui.c` |
 | Auto-rotate | Settings > Appearance > Auto-rotate: the screen turns with gravity (IMU). | `muse_ui.c`, `boards/muse_lcd_bands.c` |
 | Always-on display | Settings > Appearance > Always-on display (off by default): when idle the screen stays on at **5%** with the face and clock instead of going dark; the first tap only wakes it. | `muse_ui.c` (`update_sleep`) |
@@ -100,6 +104,31 @@ The 1.75C's link needs ≥16 KiB of DMA-capable free RAM; features had pushed it
 buffers in PSRAM (`EXT_RAM_BSS_ATTR`), `CONFIG_MUSE_STATIC_BUFFERS_IN_PSRAM` on for this
 board (~18 KiB), the wake word entirely in PSRAM. Boots with ~29 KiB DMA free.
 
+## 8b. Settings > Hardware
+
+A page listing what the board is and has: board, chip and revision, CPU cores and clock,
+radio, MAC, flash, PSRAM (size and free), internal and DMA RAM free, screen (size, shape,
+diagonal), touch, audio, motion sensor (found or not), buttons, power (battery or USB),
+uptime, ESP-IDF version, and which of this fork's features the build has. Live values
+refresh while it's open. `muse_settings_ui.c` (`build_hardware_page`); `>ui.settings=hardware`
+on bench builds.
+
+Brightness is in Appearance only; Sound shows it only on boards without audio, where that
+page is "Screen".
+
+## 8c. Names and avatar
+
+| Setting | What | Default |
+|---|---|---|
+| `CONFIG_MUSE_NAME` | The companion as Settings names it ("Vi explains", "Vi sleeps on the face"). The Muse app, server and pairing keep their names. | `Muse` (here `Vi`) |
+| `CONFIG_MUSE_OWNER_NAME` | Who the voice guard's spoken refusals say it serves ("I can only help ..."). | `my owner` (here `Vishal`) |
+| `CONFIG_MUSE_AVATAR_DIR` | Folder with `muse_pixel.c` and/or `muse_photo_img.c`, absolute or relative to `esp32/`; any checkout or worktree builds with them. | empty: `components/muse/avatar/` |
+
+`tools/muse/photo_avatar.py PICTURE --eyes LX,LY,RX,RY --mouth X,Y [--chin Y] [--out FOLDER]`
+turns any portrait into the photo face; with eyes and mouth it also writes the face's layout
+(`muse_photo_layout`: hair, eyes, face, chin, shoulders, the head's extent), so touches and
+the head shake fit that face. Files made before keep the old built-in layout.
+
 ## 9. Fixes along the way
 
 - Boot crash loop with the ring removed (`NO_RING` null guard).
@@ -116,7 +145,30 @@ board (~18 KiB), the wake word entirely in PSRAM. Boots with ~29 KiB DMA free.
   `tests/voice_call_fakes/esp_attr.h`. Known pre-existing failure on macOS:
   `VoicePeCallLoop` (its harness doesn't compile there).
 
-## 11. Building this fork
+## 11. Other boards
+
+The board-specific parts are declared, not assumed:
+
+| Feature | Needs | Boards |
+|---|---|---|
+| Motion sensor (`CONFIG_MUSE_IMU`) | `MUSE_BOARD_HAS_QMI8658`: a QMI8658 whose bus the driver hands out (`muse_board_t.imu_bus`), and PSRAM. Probed at boot; logs and stays off if none answers. | 1.75C, 1.75, 1.43, 1.46, 1.8, 2.06, 2.16, LCD-1.28 |
+| Auto-rotate | The motion sensor, a panel driven by `muse_lcd_bands.c` (`MUSE_BOARD_LCD_BANDS`) and a square panel | the above except LCD-1.28 |
+| Wake word | Live calls (PSRAM), an ESP32-S3 or P4 | any such board |
+| Voice guard | Live calls | any such board |
+| Clock, themes, captions, UI options, Hardware page | — | any board with the full UI |
+
+Not opted in (a QMI8658 not confirmed or not wired here): 1.43C, 1.85C, LCD-3.49, LCD-1.9.
+To add one: add it to `MUSE_BOARD_HAS_QMI8658` in `components/muse/Kconfig` and give its
+driver an `imu_bus`.
+
+```sh
+MUSE_FEATURES=1 IDF_EXPORT=~/esp/esp-idf-v6.0.3/export.sh tools/muse/board.sh build s3-216
+```
+
+builds in `build-muse-<profile>-features/` (no config lock there; the lock is the 1.75C's
+own build).
+
+## 12. Building this fork
 
 ```sh
 cd esp32

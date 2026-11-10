@@ -254,6 +254,12 @@ static void wait_buttons(int timeout_ms)
     muse_gpio_buttons_wait((muse_gpio_button_t *const[]){ &s_key, &s_boot }, 2, timeout_ms);
 }
 
+/* The I2C bus its QMI8658 motion sensor shares (muse_board_t.imu_bus). */
+static void *imu_bus(void)
+{
+    return bsp_i2c_get_handle();
+}
+
 static const muse_board_t s_board = {
     .name = "Waveshare ESP32-S3-Touch-AMOLED-2.16",
     .width = BSP_LCD_H_RES, .height = BSP_LCD_V_RES, .round = false, .touch = true, .diagonal_in = 2.16f,
@@ -264,6 +270,7 @@ static const muse_board_t s_board = {
     .aux_hint = { LV_ALIGN_TOP_MID, -113, 6 },
     .frame_ms = 40,
     .init = init,
+    .imu_bus = imu_bus,
     .display_start = display_start,
     .display_lock = display_lock,
     .display_unlock = esp_lv_adapter_unlock,

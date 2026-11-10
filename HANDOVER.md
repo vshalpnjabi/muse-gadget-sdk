@@ -14,7 +14,12 @@ Read this first in a new session. Feature list: [CUSTOMIZATIONS.md](CUSTOMIZATIO
   ~23% misses, ~0.94 false wakes/hour at cutoff 0.98. Next: retrain with more samples and
   real recordings.
 - Builds are reproducible from git: `devices/sdkconfig.muse-waveshare-s3-175c-custom` +
-  git-ignored `devices/sdkconfig.muse-waveshare-s3-175c.local` (token).
+  git-ignored `devices/sdkconfig.muse-waveshare-s3-175c.local` (tokens, the voice guard's
+  relay addresses and speaker, optionally `CONFIG_MUSE_AVATAR_DIR`).
+- **1.1.0 (generic)**: nothing personal in Kconfig defaults or code; names
+  (`CONFIG_MUSE_NAME` "Vi", `CONFIG_MUSE_OWNER_NAME`) in the `-custom` overlay;
+  Settings > Hardware; the features build on other boards with `MUSE_FEATURES=1`
+  (CUSTOMIZATIONS.md section 11). Not flashed yet.
 
 ## What was done (by topic)
 
@@ -25,7 +30,7 @@ Read this first in a new session. Feature list: [CUSTOMIZATIONS.md](CUSTOMIZATIO
    themes, auto-rotate, always-on display (5%), clock (24 h), sleep hours dial, DND,
    speaker boost slider, volume/mic buttons. See CUSTOMIZATIONS.md.
 3. **Voice guard** (`components/muse/muse_vg.c`): windows to a relay on the Mac mini
-   (`http://192.168.1.214:8792`, fallback `https://vpmacmini.tail94daa8.ts.net/vg`),
+   (its home and HTTPS addresses and the speaker are in the git-ignored `.local`),
    dot, enforcement on red only, settings (Voice recognition, Show notice, Play tone,
    Muse explains), Calibrate voice. "Muse explains" uses standard realtime events
    (system `conversation.item.create` + `response.create`); confirmed working live.
@@ -129,5 +134,7 @@ TF 2.21 deadlock/abort). Training needs `tensorboard`.
 - The Mac mini's disk was reported 100% full by Muse — the relay may fail if it stays full.
 - Old build folder moved to the job's tmp during wrap-up; the fresh build in
   `esp32/build-muse-waveshare-s3-175c` comes from git config + `.local`.
-- `CONFIG_MUSE_VG_TOKEN` lives in `esp32/devices/sdkconfig.muse-waveshare-s3-175c.local`
-  (git-ignored) on this machine only.
+- `CONFIG_MUSE_VG_TOKEN`, `CONFIG_MUSE_VG_HOME_BASE`, `_AWAY_BASE` and `_SPEAKER` live in
+  `esp32/devices/sdkconfig.muse-waveshare-s3-175c.local` (git-ignored) on this machine only;
+  the config lock leaves them out. `CONFIG_MUSE_AVATAR_DIR` there points a checkout or
+  worktree at the avatar files kept elsewhere.

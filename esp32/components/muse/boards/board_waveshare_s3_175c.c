@@ -38,9 +38,6 @@
 
 #include "muse_board.h"
 #include "muse_lcd_bands.h"
-#if CONFIG_MUSE_IMU
-#include "muse_imu.h"
-#endif
 #include "muse_mem.h"
 #include "muse_pmu.h"
 
@@ -66,9 +63,6 @@ static esp_err_t init(void)
 {
     ESP_RETURN_ON_ERROR(bsp_i2c_init(), TAG, "i2c init");
     ESP_RETURN_ON_ERROR(muse_gpio_button_init(&s_boot, GPIO_NUM_0), TAG, "boot button");
-#if CONFIG_MUSE_IMU
-    muse_imu_init(bsp_i2c_get_handle());   /* the face's tilt and shake; logs if it isn't there */
-#endif
 #if CONFIG_MUSE_BOARD_WAVESHARE_S3_175
     /* Only the PMU sees PWR: latch its edges for poll_buttons(). */
     esp_err_t err = muse_pmu_init(bsp_i2c_get_handle(), true);
@@ -262,6 +256,12 @@ static void wait_buttons(int timeout_ms)
 }
 #endif
 
+/* The I2C bus its QMI8658 motion sensor shares (muse_board_t.imu_bus). */
+static void *imu_bus(void)
+{
+    return bsp_i2c_get_handle();
+}
+
 static const muse_board_t s_board = {
 #if CONFIG_MUSE_BOARD_WAVESHARE_S3_175
     .name = "Waveshare ESP32-S3-Touch-AMOLED-1.75",
@@ -288,6 +288,7 @@ static const muse_board_t s_board = {
 #endif
     .frame_ms = 40,
     .init = init,
+    .imu_bus = imu_bus,
     .display_start = display_start,
     .display_lock = display_lock,
     .display_unlock = esp_lv_adapter_unlock,

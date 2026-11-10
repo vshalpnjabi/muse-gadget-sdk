@@ -1,7 +1,13 @@
 # This fork's Waveshare ESP32-S3-Touch-AMOLED-1.75C build (CUSTOMIZATIONS.md):
 # applied after devices/sdkconfig.muse-waveshare-s3-175c by tools/muse/board.sh.
-# Secrets (the voice guard token) go in sdkconfig.muse-waveshare-s3-175c.local,
-# which git ignores; see sdkconfig.muse-waveshare-s3-175c.local.example.
+# Secrets and per-machine values (tokens, the voice guard's addresses and speaker,
+# the avatar folder) go in sdkconfig.muse-waveshare-s3-175c.local, which git
+# ignores; see sdkconfig.muse-waveshare-s3-175c.local.example. The same features
+# without anything personal: devices/sdkconfig.muse-features (MUSE_FEATURES=1).
+
+# Names: the companion as the board calls it, and the owner it serves.
+CONFIG_MUSE_NAME="Vi"
+CONFIG_MUSE_OWNER_NAME="Vishal"
 
 # Live voice calls with Muse, push-to-talk on the one button, Muse greets first.
 CONFIG_MUSE_REALTIME_VOICE=y
@@ -22,7 +28,7 @@ CONFIG_MUSE_UI_NO_AUX_ICON=y
 CONFIG_MUSE_UI_BATTERY_PERCENT_ONLY=y
 CONFIG_MUSE_UI_PLAIN_SPEAKER=y
 CONFIG_MUSE_UI_SMALL_CAPTIONS=y
-# The default theme: Muse (Vi's colours in the Muse app).
+# The default theme: Muse (the Muse app's own look).
 CONFIG_MUSE_DEFAULT_THEME=0
 
 # Wi-Fi static buffers 6 and RX block-ack window 12: leaves the 16 KiB of
@@ -37,12 +43,10 @@ CONFIG_MUSE_TIMEZONE="PST8PDT,M3.2.0,M11.1.0"
 # Motion sensor (QMI8658): tilt, shake, auto-rotate.
 CONFIG_MUSE_IMU=y
 
-# Voice guard (speaker verification): the relay's bases and speaker.
+# Voice guard (speaker verification); its relay's addresses, speaker and token
+# are in the .local overlay.
 CONFIG_MUSE_VOICE_GUARD=y
 CONFIG_MUSE_VG_ENFORCE=y
-CONFIG_MUSE_VG_HOME_BASE="http://192.168.1.214:8792"
-CONFIG_MUSE_VG_AWAY_BASE="https://vpmacmini.tail94daa8.ts.net/vg"
-CONFIG_MUSE_VG_SPEAKER="vishal"
 
 # Wake word "Hey Vi" (components/muse/wake/README.md).
 CONFIG_MUSE_WAKE_WORD=y

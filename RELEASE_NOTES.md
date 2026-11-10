@@ -3,6 +3,23 @@
 The firmware shows the top version below (Settings > Version), with its commit and
 build time. Add a new section at the top for each release.
 
+## 1.1.0 — 2026-11-09
+
+The fork's features work on other boards; names, avatar and relay are settings.
+
+- Settings > Hardware: board, chip, CPU, radio, MAC, flash, PSRAM, free RAM, screen,
+  touch, audio, motion sensor, buttons, power, uptime, ESP-IDF and what the build has.
+- Brightness lives in Appearance only (Sound keeps it on boards without audio).
+- Names: the companion's (`CONFIG_MUSE_NAME`, here "Vi") in Settings, and the owner's
+  (`CONFIG_MUSE_OWNER_NAME`) in the voice guard's spoken refusals.
+- Avatar: your avatar files can live in any folder (`CONFIG_MUSE_AVATAR_DIR`); a photo
+  face's touch zones and head shake fit that face (`photo_avatar.py --eyes --mouth --chin`).
+- Other boards: the motion sensor on every board with a QMI8658 (1.75/1.75C, 1.43, 1.46,
+  1.8, 2.06, 2.16, LCD-1.28); wake word, voice guard and the rest on any board with PSRAM
+  (`MUSE_FEATURES=1 tools/muse/board.sh build <board>`).
+- Voice guard: its relay addresses and speaker are per-machine settings (`.local`), and it
+  stays off until token, speaker and an address are set.
+
 ## 1.0.0 — 2026-11-09
 
 First release of the Waveshare 1.75C fork.

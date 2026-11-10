@@ -20,7 +20,7 @@
 
 /* Two hand-set themes, then solid colours whose surfaces are made from the accent. */
 static muse_theme_t s_themes[] = {
-    /* Muse: Vi in the Muse app. Navy like his hoodie, warm beige like his tee,
+    /* Muse: the Muse app's own look. Navy like its character's hoodie, warm beige like the tee,
      * cream type, brown-grey for what's quiet. */
     { "Muse", 0xf5ece0, 0x9c9184, 0xf0e4d0, 0xf5ece0, 0x172033, 0x26334f, 0x1d2840, 0xe7c9a0, 0x10151f, 0x1b2233,
       0x34405a },

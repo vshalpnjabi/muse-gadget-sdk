@@ -69,23 +69,30 @@ if(CONFIG_MUSE_ENABLED)
         list(APPEND srcs "fonts/muse_font_vi_12.c" "fonts/muse_font_vi_14.c"
                          "fonts/muse_font_vi_20.c" "fonts/muse_font_vi_28.c")
     endif()
-    # Your own character (tools/muse/AVATAR_RECIPE.md) stands in for the default
-    # avatar when avatar/muse_pixel.c exists here; this avatar/ is gitignored. The
-    # default is in avatar/ at the top of the project.
-    file(GLOB custom_avatar CONFIGURE_DEPENDS "${COMPONENT_DIR}/avatar/muse_pixel.c")
+    # Your own avatar files, in CONFIG_MUSE_AVATAR_DIR (absolute, or relative to
+    # esp32/), else in components/muse/avatar/ (gitignored). Each is optional:
+    #   muse_pixel.c      your drawn character (tools/muse/AVATAR_RECIPE.md), in
+    #                     place of the default in avatar/ at the top of the project
+    #   muse_photo_img.c  a photo face (tools/muse/photo_avatar.py), beside the
+    #                     drawn one; Settings > Appearance picks
+    set(muse_avatar_dir "${COMPONENT_DIR}/avatar")
+    if(CONFIG_MUSE_AVATAR_DIR)
+        get_filename_component(muse_avatar_dir "${CONFIG_MUSE_AVATAR_DIR}" ABSOLUTE BASE_DIR "${PROJECT_DIR}")
+        if(NOT IS_DIRECTORY "${muse_avatar_dir}")
+            message(WARNING "CONFIG_MUSE_AVATAR_DIR ${muse_avatar_dir} isn't a folder: the default avatar is used")
+        endif()
+    endif()
+    file(GLOB custom_avatar CONFIGURE_DEPENDS "${muse_avatar_dir}/muse_pixel.c")
     if(custom_avatar)
-        message(STATUS "Custom avatar: components/muse/avatar/muse_pixel.c")
-        list(APPEND srcs "avatar/muse_pixel.c")
+        message(STATUS "Custom avatar: ${muse_avatar_dir}/muse_pixel.c")
+        list(APPEND srcs "${muse_avatar_dir}/muse_pixel.c")
     else()
         list(APPEND srcs "../../avatar/muse_pixel.c")
     endif()
-    # The Muse app's picture of your Muse, made by tools/muse/photo_avatar.py,
-    # beside the drawn avatar (Settings > Appearance picks one) when
-    # avatar/muse_photo_img.c exists here. Like muse_pixel.c, it's yours: gitignored.
-    file(GLOB photo_avatar CONFIGURE_DEPENDS "${COMPONENT_DIR}/avatar/muse_photo_img.c")
+    file(GLOB photo_avatar CONFIGURE_DEPENDS "${muse_avatar_dir}/muse_photo_img.c")
     if(photo_avatar)
-        message(STATUS "Photo avatar: components/muse/avatar/muse_photo_img.c")
-        list(APPEND srcs "muse_photo.c" "avatar/muse_photo_img.c")
+        message(STATUS "Photo avatar: ${muse_avatar_dir}/muse_photo_img.c")
+        list(APPEND srcs "muse_photo.c" "${muse_avatar_dir}/muse_photo_img.c")
         set(muse_photo_avatar 1)
     endif()
     if(CONFIG_MUSE_IMU)
@@ -224,7 +231,7 @@ set(muse_priv_requires
     bt esp-tls mbedtls esp_app_format esp_http_client
     noise_core minimp3 muse_vstream tinyh264 libvpx_vp8
     esp_lcd esp_adc esp_driver_i2s esp_driver_ledc esp_driver_spi esp_driver_uart esp_wifi
-    esp_driver_pcnt efuse
+    esp_driver_pcnt efuse spi_flash
     # The Sticky's microSD (CONFIG_MUSE_STICKY_SD). Requirements are resolved
     # before Kconfig values exist, so these can't depend on it; only the code does.
     fatfs esp_driver_sdspi sdmmc)

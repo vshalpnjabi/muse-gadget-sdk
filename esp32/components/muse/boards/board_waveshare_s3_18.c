@@ -219,6 +219,12 @@ static unsigned poll_buttons(void)
     return ev;
 }
 
+/* The I2C bus its QMI8658 motion sensor shares (muse_board_t.imu_bus). */
+static void *imu_bus(void)
+{
+    return bsp_i2c_get_handle();
+}
+
 static const muse_board_t s_board = {
     .name = "Waveshare ESP32-S3-Touch-AMOLED-1.8",
     .width = BSP_LCD_H_RES,
@@ -233,6 +239,7 @@ static const muse_board_t s_board = {
     .aux_hint = { LV_ALIGN_RIGHT_MID, -10, 126 },
     .frame_ms = 40,
     .init = init,
+    .imu_bus = imu_bus,
     .display_start = display_start,
     .display_lock = display_lock,
     .display_unlock = esp_lv_adapter_unlock,

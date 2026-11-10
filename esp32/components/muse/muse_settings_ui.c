@@ -21,9 +21,15 @@
 #include <string.h>
 
 #include "esp_app_desc.h"
+#include "esp_chip_info.h"
+#include "esp_flash.h"
+#include "esp_idf_version.h"
 #include "esp_heap_caps.h"
 #include "esp_mac.h"
 #include "esp_timer.h"
+#if CONFIG_SPIRAM
+#include "esp_psram.h"
+#endif
 #include "sdkconfig.h"
 #if CONFIG_ESP_HOSTED_ENABLED
 #include "esp_wifi.h"
@@ -33,6 +39,9 @@
 #include "muse_battery.h"
 #include "muse_ble.h"
 #include "muse_board.h"
+#if CONFIG_MUSE_IMU
+#include "muse_imu.h"
+#endif
 #include "muse_chat.h"
 #include "muse_input.h"
 #include "muse_keypad.h"
@@ -51,6 +60,12 @@
 #if CONFIG_MUSE_VIDEO
 #include "muse_video.h"
 #endif
+
+/* The companion as the board names it (CONFIG_MUSE_NAME). */
+#ifndef CONFIG_MUSE_NAME
+#define CONFIG_MUSE_NAME "Muse"
+#endif
+#define NAME CONFIG_MUSE_NAME
 
 /* Keep content in a column that stays inside a round panel (and fits a 368 px one). */
 #define LIST_W 330
@@ -86,7 +101,8 @@ static int s_text_scale = 466;
 static bool s_tiny;   /* round and under 300 px: see TINY_LIST_W */
 static lv_obj_t *s_tile;
 static lv_obj_t *s_current;
-static lv_obj_t *s_home, *s_wifi, *s_hatch, *s_ble, *s_sound, *s_sleep, *s_battery, *s_power, *s_text, *s_appearance;
+static lv_obj_t *s_home, *s_wifi, *s_hatch, *s_ble, *s_sound, *s_sleep, *s_battery, *s_power, *s_text, *s_appearance,
+    *s_hardware;
 
 /*
  * Only home is kept. A sub-page is built when it opens and deleted on the way
@@ -515,7 +531,8 @@ static lv_obj_t *info_row(lv_obj_t *list, const char *text)
 
 static void drop(lv_obj_t *p)
 {
-    lv_obj_t **const pages[] = { &s_wifi, &s_hatch, &s_ble, &s_sound, &s_sleep, &s_battery, &s_power, &s_text, &s_appearance };
+    lv_obj_t **const pages[] = { &s_wifi, &s_hatch, &s_ble, &s_sound, &s_sleep, &s_battery, &s_power, &s_text, &s_appearance,
+                                 &s_hardware };
     for (size_t i = 0; i < sizeof(pages) / sizeof(pages[0]); i++) {
         if (*pages[i] == p) {
             *pages[i] = NULL;
@@ -1595,13 +1612,13 @@ static void build_sound_page(lv_obj_t *tile)
 #if CONFIG_MUSE_VOICE_GUARD
     if (muse_vg_running()) {
         switch_row(list, "Voice recognition", muse_settings_vg_on(), on_vg_on_sw);
-        note(list, "Checks that the voice in a call is yours; another voice is held back from Muse.");
+        note(list, "Checks that the voice in a call is yours; another voice is held back from " NAME ".");
         row(list, NULL, "Calibrate voice", NULL, on_cal_open, NULL);
         note(list, "Read a short script aloud so the board recognizes your voice.");
         note(list, "When a voice isn't recognized in a call:");
         switch_row(list, "Show notice", muse_settings_vg_notice(), on_vg_notice_sw);
         switch_row(list, "Play tone", muse_settings_vg_tone(), on_vg_tone_sw);
-        switch_row(list, "Muse explains", muse_settings_vg_explain(), on_vg_explain_sw);
+        switch_row(list, NAME " explains", muse_settings_vg_explain(), on_vg_explain_sw);
     }
 #endif
 
@@ -1626,10 +1643,8 @@ static void build_sound_page(lv_obj_t *tile)
         note(list, "Talk at arm's length: the bar should reach green (-30 to -15 dBFS) without going orange.");
     }
 
-    if (!muse_board->epaper) {
-        s_bright_sl = slider(list, "Brightness", 10, 100, muse_settings_brightness(), &s_bright_val, on_bright);
-        set_val(s_bright_val, "%d%%", muse_settings_brightness());
-    }
+    /* Brightness lives in Appearance on boards with audio (Sound is "Screen",
+     * with only brightness, on the ones without). */
     if (s_vol_val) set_val(s_vol_val, "%d%%", muse_settings_volume());
     set_val(s_gain_val, "%d dB", muse_settings_mic_gain() / 3 * 3);
 }
@@ -1792,7 +1807,7 @@ static void build_sleep_page(lv_obj_t *tile)
     lv_obj_t *list;
     s_sleep = page(tile, "AUTO-SLEEP", true, &list);
     s_sleep_shown = -1;
-    note(list, "Turn the screen off after Muse has been idle for:");
+    note(list, "Turn the screen off after " NAME " has been idle for:");
     for (int i = 0; i < SLEEP_COUNT; i++) {
         s_sleep_rows[i] = row(list, NULL, SLEEP_NAMES[i], &s_sleep_checks[i], on_sleep_choice,
                               (void *)(intptr_t)i);
@@ -1802,7 +1817,7 @@ static void build_sleep_page(lv_obj_t *tile)
     note(list, "Tap the screen or press either button to wake.");
 #if CONFIG_MUSE_CLOCK
     switch_row(list, "Do not disturb", muse_settings_dnd(), on_dnd_sw);
-    note(list, "No sounds of the board's own (touches, shakes). Muse still answers you.");
+    note(list, "No sounds of the board's own (touches, shakes). " NAME " still answers you.");
     int from = muse_settings_sleep_from(), to = muse_settings_sleep_to();
     s_hours_sw = switch_row(list, "Sleep hours", from >= 0, on_hours_sw);
     if (from >= 0) {
@@ -1813,9 +1828,9 @@ static void build_sleep_page(lv_obj_t *tile)
     build_hours_dial(list);
     char tz[MUSE_TZ_MAX + 1];
     muse_settings_tz(tz);
-    char line[160];
-    snprintf(line, sizeof(line), "Muse sleeps on the face, quiet, the screen dim. Time zone: %s. "
-             "Or tell Muse your sleep hours.", tz);
+    char line[224];
+    snprintf(line, sizeof(line), NAME " sleeps on the face, quiet, the screen dim. Time zone: %s. "
+             "Or tell " NAME " your sleep hours.", tz);
     note(list, line);
 #endif
 }
@@ -1888,7 +1903,7 @@ static void on_avatar_choice(lv_event_t *e)
 }
 #endif
 
-#if CONFIG_MUSE_IMU
+#if CONFIG_MUSE_IMU && CONFIG_MUSE_BOARD_LCD_BANDS
 static void on_rotate_sw(lv_event_t *e)
 {
     muse_settings_set_autorotate(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
@@ -1917,7 +1932,7 @@ static void build_appearance_page(lv_obj_t *tile)
     lv_obj_t *list;
     s_appearance = page(tile, "APPEARANCE", true, &list);
     if (!muse_board->epaper) {
-        /* The same slider as Sound's (one page is built at a time): where people look for it. */
+        /* Brightness's one home on boards with audio (screen-only ones keep it in "Screen"). */
         s_bright_sl = slider(list, "Brightness", 10, 100, muse_settings_brightness(), &s_bright_val, on_bright);
         set_val(s_bright_val, "%d%%", muse_settings_brightness());
     }
@@ -1928,9 +1943,11 @@ static void build_appearance_page(lv_obj_t *tile)
         lv_obj_set_style_text_color(s_avatar_checks[i], lv_color_hex(COLOR_ACCENT), 0);
     }
 #endif
-#if CONFIG_MUSE_IMU
-    switch_row(list, "Auto-rotate", muse_settings_autorotate(), on_rotate_sw);
-    note(list, "The screen turns to how you hold the board.");
+#if CONFIG_MUSE_IMU && CONFIG_MUSE_BOARD_LCD_BANDS
+    if (muse_board->width == muse_board->height) {
+        switch_row(list, "Auto-rotate", muse_settings_autorotate(), on_rotate_sw);
+        note(list, "The screen turns to how you hold the board.");
+    }
 #endif
 #if CONFIG_MUSE_CLOCK
     switch_row(list, "24-hour clock", muse_settings_clock24(), on_clock24_sw);
@@ -1945,10 +1962,10 @@ static void build_appearance_page(lv_obj_t *tile)
         lv_obj_set_style_text_color(s_theme_checks[i], lv_color_hex(muse_theme_at(i)->accent), 0);
         (void)r;
     }
-    note(list, "Muse matches Vi in the Muse app. A new theme shows after a restart.");
+    note(list, "Muse is the Muse app's own look. A new theme shows after a restart.");
     button(list, LV_SYMBOL_REFRESH "  Restart now", COLOR_ACCENT, on_restart, NULL);
     s_captions_sw = switch_row(list, "Captions", muse_settings_captions(), on_captions_sw);
-    note(list, "What you said and Muse's replies as text. Off, Muse keeps its size on the face; "
+    note(list, "What you said and " NAME "'s replies as text. Off, " NAME " keeps its size on the face; "
                "status messages still show.");
     tick_appearance();
 }
@@ -2091,6 +2108,150 @@ static void build_power_page(lv_obj_t *tile)
     note(list, text);
 }
 
+/* ---------- Hardware: what this board is and has ---------- */
+
+static lv_obj_t *s_hw_psram, *s_hw_ram, *s_hw_power, *s_hw_motion, *s_hw_uptime;
+
+static void hw_kb(char *buf, size_t n, size_t bytes)
+{
+    if (bytes >= 1024 * 1024) {
+        snprintf(buf, n, "%u.%u MB", (unsigned)(bytes >> 20), (unsigned)((bytes & 0xfffff) * 10 >> 20));
+    } else {
+        snprintf(buf, n, "%u KB", (unsigned)(bytes >> 10));
+    }
+}
+
+static void hw_row(lv_obj_t *list, const char *name, const char *value)
+{
+    set_text(info_row(list, name), value);
+}
+
+static void build_hardware_page(lv_obj_t *tile)
+{
+    lv_obj_t *list;
+    s_hardware = page(tile, "HARDWARE", true, &list);
+    char buf[96];
+
+    hw_row(list, "Board", muse_board->name);
+
+    esp_chip_info_t chip;
+    esp_chip_info(&chip);
+    char target[] = CONFIG_IDF_TARGET;
+    for (char *c = target; *c; c++) {
+        if (*c >= 'a' && *c <= 'z') *c -= 'a' - 'A';
+    }
+    snprintf(buf, sizeof(buf), "%s rev %d.%d", target, chip.revision / 100, chip.revision % 100);
+    hw_row(list, "Chip", buf);
+    snprintf(buf, sizeof(buf), "%d core%s, %d MHz", chip.cores, chip.cores == 1 ? "" : "s",
+             CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ);
+    hw_row(list, "CPU", buf);
+    snprintf(buf, sizeof(buf), "%s%s%s%s", (chip.features & CHIP_FEATURE_WIFI_BGN) ? "Wi-Fi " : "",
+             (chip.features & CHIP_FEATURE_BLE) ? "BLE " : "", (chip.features & CHIP_FEATURE_BT) ? "BT " : "",
+             (chip.features & CHIP_FEATURE_IEEE802154) ? "802.15.4" : "");
+    hw_row(list, "Radio", buf[0] ? buf : "-");
+    uint8_t mac[6];
+    if (esp_read_mac(mac, ESP_MAC_WIFI_STA) == ESP_OK) {
+        snprintf(buf, sizeof(buf), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+        hw_row(list, "MAC", buf);
+    }
+
+    uint32_t flash = 0;
+    if (esp_flash_get_size(NULL, &flash) == ESP_OK) {
+        hw_kb(buf, sizeof(buf), flash);
+        hw_row(list, "Flash", buf);
+    }
+    s_hw_psram = info_row(list, "PSRAM");
+    s_hw_ram = info_row(list, "RAM free");
+
+    snprintf(buf, sizeof(buf), "%d x %d%s%s", muse_board->width, muse_board->height,
+             muse_board->round ? ", round" : "", muse_board->epaper ? ", e-paper" : "");
+    hw_row(list, "Screen", buf);
+    if (muse_board->diagonal_in > 0) {
+        snprintf(buf, sizeof(buf), "%d.%02d in", (int)muse_board->diagonal_in,
+                 (int)(muse_board->diagonal_in * 100 + 0.5f) % 100);
+        hw_row(list, "Screen size", buf);
+    }
+    hw_row(list, "Touch", muse_board->touch ? "Yes" : "No");
+    hw_row(list, "Audio", muse_board->audio_init ? "Speaker and mic" : muse_board->mic_init ? "Mic only" : "None");
+    s_hw_motion = info_row(list, "Motion sensor");
+    snprintf(buf, sizeof(buf), "%s%s%s%s%s", muse_board->talk_button ? muse_board->talk_button : "",
+             muse_board->aux_button ? ", " : "", muse_board->aux_button ? muse_board->aux_button : "",
+             muse_board->power_button ? ", " : "", muse_board->power_button ? muse_board->power_button : "");
+    hw_row(list, "Buttons", buf[0] ? buf : "None");
+    s_hw_power = info_row(list, "Power");
+    s_hw_uptime = info_row(list, "Up for");
+    hw_row(list, "ESP-IDF", esp_get_idf_version());
+
+    /* What this build has, so a board missing a feature says why. */
+    static const char BUILT[] = "Built with:"
+#if CONFIG_MUSE_REALTIME_VOICE
+        " live calls,"
+#endif
+#if CONFIG_MUSE_WAKE_WORD
+        " wake word \"" CONFIG_MUSE_WAKE_PHRASE "\","
+#endif
+#if CONFIG_MUSE_VOICE_GUARD
+        " voice guard,"
+#endif
+#if CONFIG_MUSE_CLOCK
+        " clock,"
+#endif
+#if CONFIG_MUSE_IMU
+        " motion,"
+#endif
+#if MUSE_HAS_PHOTO_AVATAR
+        " photo avatar."
+#else
+        " drawn avatar."
+#endif
+        ;
+    note(list, BUILT);
+}
+
+static void tick_hardware(void)
+{
+    char buf[64], a[24], b[24];
+#if CONFIG_SPIRAM
+    hw_kb(a, sizeof(a), esp_psram_get_size());
+    hw_kb(b, sizeof(b), heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    snprintf(buf, sizeof(buf), "%s, %s free", a, b);
+    set_text(s_hw_psram, esp_psram_get_size() ? buf : "None");
+#else
+    set_text(s_hw_psram, "None");
+#endif
+    hw_kb(a, sizeof(a), heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    hw_kb(b, sizeof(b), heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
+    snprintf(buf, sizeof(buf), "%s, DMA %s", a, b);
+    set_text(s_hw_ram, buf);
+#if CONFIG_MUSE_IMU
+    if (muse_board->imu_bus) {
+        muse_motion_t m;
+        muse_motion(&m);
+        set_text(s_hw_motion, m.present ? "QMI8658" : "Not found");
+    } else {
+        set_text(s_hw_motion, "None");
+    }
+#else
+    set_text(s_hw_motion, muse_board->imu_bus ? "QMI8658 (not built in)" : "None");
+#endif
+    muse_power_t p = muse_state_power();
+    if (p.battery_pct < 0) {
+        set_text(s_hw_power, "USB");
+    } else {
+        snprintf(buf, sizeof(buf), "Battery %d%%%s", p.battery_pct, p.charging ? ", charging" : "");
+        set_text(s_hw_power, buf);
+    }
+    unsigned up = (unsigned)(esp_timer_get_time() / 1000000);
+    if (up >= 86400) {
+        snprintf(buf, sizeof(buf), "%u d %u h", up / 86400, up % 86400 / 3600);
+    } else if (up >= 3600) {
+        snprintf(buf, sizeof(buf), "%u h %u min", up / 3600, up % 3600 / 60);
+    } else {
+        snprintf(buf, sizeof(buf), "%u min %u s", up / 60, up % 60);
+    }
+    set_text(s_hw_uptime, buf);
+}
+
 /* ---------- Home ---------- */
 
 static const page_t WIFI = { &s_wifi, build_wifi_page };
@@ -2101,6 +2262,7 @@ static const page_t SLEEP = { &s_sleep, build_sleep_page };
 static const page_t BATTERY = { &s_battery, build_battery_page };
 static const page_t POWER = { &s_power, build_power_page };
 static const page_t APPEARANCE = { &s_appearance, build_appearance_page };
+static const page_t HARDWARE = { &s_hardware, build_hardware_page };
 
 #if CONFIG_MUSE_VIDEO
 /* Phone camera: the video view, which asks the phone for a stream. */
@@ -2245,6 +2407,7 @@ static void build_home(lv_obj_t *tile)
     if (muse_board->power_off) {
         row(list, LV_SYMBOL_POWER, "Power off", NULL, on_nav, (void *)&POWER);
     }
+    row(list, LV_SYMBOL_SETTINGS, "Hardware", NULL, on_nav, (void *)&HARDWARE);
     lv_obj_t *version_val;
     row(list, LV_SYMBOL_LIST, "Version", &version_val, on_version_open, NULL);
     set_text(version_val, MUSE_FW_VERSION " - " MUSE_FW_COMMIT);
@@ -2321,7 +2484,8 @@ static volatile int s_bench_open = -1;   /* applied in the LVGL task, by the nex
 
 bool muse_settings_ui_bench_open(const char *name)
 {
-    static const char *const NAMES[] = { "home", "wifi", "muse", "ble", "sound", "sleep", "battery", "power" };
+    static const char *const NAMES[] = { "home", "wifi", "muse", "ble", "sound", "sleep", "battery", "power",
+                                         "hardware" };
     for (int i = 0; i < (int)(sizeof(NAMES) / sizeof(NAMES[0])); i++) {
         if (!strcmp(name, NAMES[i])) {
             s_bench_open = i;
@@ -2333,7 +2497,7 @@ bool muse_settings_ui_bench_open(const char *name)
 
 static void bench_open_pending(void)
 {
-    static const page_t *const PAGES[] = { NULL, &WIFI, &HATCH, &BLE, &SOUND, &SLEEP, &BATTERY, &POWER };
+    static const page_t *const PAGES[] = { NULL, &WIFI, &HATCH, &BLE, &SOUND, &SLEEP, &BATTERY, &POWER, &HARDWARE };
     int i = s_bench_open;
     if (i < 0) {
         return;
@@ -2382,6 +2546,8 @@ void muse_settings_ui_tick(bool visible)
         tick_sleep();
     } else if (s_current == s_battery) {
         tick_battery();
+    } else if (s_current == s_hardware) {
+        tick_hardware();
     } else if (s_current == s_appearance) {
         tick_appearance();
     }

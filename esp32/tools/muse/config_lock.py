@@ -18,7 +18,8 @@
     config_lock.py update BUILD/sdkconfig devices/sdkconfig.muse-PROFILE.lock
 
 A lock is every CONFIG_ line of a known-good build (set values and "is not set"
-ones), sorted, with secrets left out (tokens, passwords, Wi-Fi credentials:
+ones), sorted, with secrets and per-machine values left out (tokens, passwords,
+Wi-Fi credentials, the voice guard's addresses and speaker, the avatar folder:
 those live in the git-ignored .local overlay). `check` exits 1 and lists every
 difference; tools/muse/board.sh runs it after each build of a board that has a
 lock. After changing a setting on purpose, run `update` and commit the lock.
@@ -26,7 +27,7 @@ lock. After changing a setting on purpose, run `update` and commit the lock.
 import re
 import sys
 
-SECRET = re.compile(r"TOKEN|PASSWORD|PASSWD|SECRET|_KEY$|WIFI_SSID")
+SECRET = re.compile(r"TOKEN|PASSWORD|PASSWD|SECRET|_KEY$|WIFI_SSID|MUSE_VG_(HOME|AWAY)_BASE|MUSE_VG_SPEAKER|MUSE_AVATAR_DIR")
 LINE = re.compile(r"^(CONFIG_[A-Z0-9_]+)=(.*)$|^# (CONFIG_[A-Z0-9_]+) is not set$")
 
 

@@ -22,6 +22,8 @@
 # MUSE_BENCH=1 adds devices/sdkconfig.muse-bench (screenshots) and builds and
 # flashes in build-muse-<profile>-bench/, so neither build's sdkconfig hides
 # the other's.
+# MUSE_FEATURES=1 adds devices/sdkconfig.muse-features (this fork's features,
+# nothing personal) in build-muse-<profile>-features/.
 # MUSE_VIDEO=1 adds devices/sdkconfig.muse-video (the phone camera over
 # Wi-Fi, on boards whose panel driver has draw_frame) in build-muse-<profile>-video/.
 # mosaico (Espressif ESP-Mosaico, ESP32-S31) builds with ESP-IDF master
@@ -104,6 +106,10 @@ fi
 if [ -n "${MUSE_BENCH:-}" ]; then
     B=$B-bench; defaults="$defaults;devices/sdkconfig.muse-bench"
 fi
+if [ -n "${MUSE_FEATURES:-}" ]; then
+    # This fork's features, nothing personal (devices/sdkconfig.muse-features).
+    B=$B-features; defaults="$defaults;devices/sdkconfig.muse-features"
+fi
 [ -n "${iris:-}" ] && defaults="$defaults;devices/sdkconfig.muse-$profile-iris"
 # This fork's features for the board, then local secrets (git-ignored), when present.
 [ -f "devices/sdkconfig.muse-$profile-custom" ] && defaults="$defaults;devices/sdkconfig.muse-$profile-custom"
@@ -143,7 +149,7 @@ if [ "$cmd" = build ]; then
     # A board with a config lock: the build must resolve to exactly the pinned
     # settings, so a dropped or changed option can't reach the board unnoticed.
     lock="devices/sdkconfig.muse-$profile.lock"
-    if [ $rc -eq 0 ] && [ -f "$lock" ]; then
+    if [ $rc -eq 0 ] && [ -f "$lock" ] && [ "$B" = "build-muse-$profile" ]; then
         python3 tools/muse/config_lock.py check "$B/sdkconfig" "$lock" || rc=1
     fi
     exit $rc

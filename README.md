@@ -32,8 +32,12 @@ working state: what's done, what's open, and how to pick it up.
   a ready beep and a soft hang-up blip.
 - **Face**: Muse's photo from the app, alive (blinks, lip sync, touch reactions with sounds,
   tilt and shake reactions), or the pixel-art avatar.
-- **Look**: themes (including one matching Vi in the Muse app), auto-rotate, brightness,
+- **Look**: themes (including the Muse app's own look), auto-rotate, brightness,
   always-on display at 5%.
+- **Settings > Hardware**: everything about the board, live.
+- **Generic**: the companion's and owner's names, the avatar folder and the voice guard's
+  relay are settings; the features build on other boards (`MUSE_FEATURES=1`, see
+  [CUSTOMIZATIONS.md](CUSTOMIZATIONS.md#11-other-boards)).
 - **Time**: clock (24-hour by default), sleep hours on one dial, do not disturb; Muse can
   set them for you.
 - **Voice guard**: checks a call's voice is the owner's via a verification relay; only an
@@ -46,7 +50,7 @@ working state: what's done, what's open, and how to pick it up.
 
 ```sh
 cd esp32
-# Optional: the voice guard's token (git-ignored)
+# Tokens, the voice guard's relay and your avatar folder (git-ignored)
 cp devices/sdkconfig.muse-waveshare-s3-175c.local.example devices/sdkconfig.muse-waveshare-s3-175c.local
 IDF_EXPORT=~/esp/esp-idf-v6.0.3/export.sh tools/muse/board.sh build s3
 IDF_EXPORT=~/esp/esp-idf-v6.0.3/export.sh tools/muse/board.sh flash s3 /dev/cu.usbmodem101

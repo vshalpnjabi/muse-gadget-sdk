@@ -1,0 +1,30 @@
+# This fork's features on any board with the full UI, with nothing personal in
+# them: MUSE_FEATURES=1 tools/muse/board.sh build|flash <board> adds it (after
+# the board's own overlay) and builds in build-muse-<profile>-features/. Options
+# a board can't have are dropped by Kconfig: the motion sensor needs a
+# QMI8658 its driver hands out (MUSE_BOARD_HAS_QMI8658), calls and the wake
+# word need PSRAM, the wake word an S3 or P4. Set names, the voice guard's
+# relay and your avatar folder in menuconfig or a .local overlay.
+
+# Live voice calls, push-to-talk on one-button boards.
+CONFIG_MUSE_REALTIME_VOICE=y
+CONFIG_MUSE_PTT_CALLS=y
+
+# The face: touch sounds, a fixed avatar size under captions, a quieter home screen.
+CONFIG_MUSE_UI_TOUCH_SOUNDS=y
+CONFIG_MUSE_UI_FIXED_AVATAR=y
+CONFIG_MUSE_UI_HIDE_READY=y
+CONFIG_MUSE_UI_HIDE_MODE_NAMES=y
+CONFIG_MUSE_UI_BATTERY_PERCENT_ONLY=y
+
+# Clock, sleep hours and do not disturb (UTC until Muse or menuconfig sets a zone).
+CONFIG_MUSE_CLOCK=y
+
+# Motion sensor, where the board has one.
+CONFIG_MUSE_IMU=y
+
+# Wake word (off until Settings > Sound > Wake word): the stock "Hey Jarvis" model.
+CONFIG_MUSE_WAKE_WORD=y
+
+# Voice guard: built in, idle until a token, speaker and relay are set.
+CONFIG_MUSE_VOICE_GUARD=y

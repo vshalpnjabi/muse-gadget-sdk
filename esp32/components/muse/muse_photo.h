@@ -63,6 +63,24 @@ typedef struct {
 extern const muse_photo_patch_t muse_photo_patches[];
 extern const int muse_photo_patch_count;
 
+/* Where the face's parts are, each 0..1 down (v) or across (u) the picture:
+ * touches react by the part they land on, and a head shake moves the rows
+ * above the neck. photo_avatar.py works it out from --eyes, --mouth and
+ * --chin; a file made without it gets defaults for a head-and-shoulders crop
+ * (muse_photo.c, weak). */
+typedef struct {
+    float hair_end;            /* v: above this, the hair */
+    float eyes_end;            /* v: down to this, between eyes_u0 and eyes_u1, an eye */
+    float eyes_u0, eyes_u1;
+    float face_end;            /* v: down to this, cheeks, nose and mouth */
+    float chin_end;            /* v: down to this, between chin_u0 and chin_u1, the chin; below, shoulders */
+    float chin_u0, chin_u1;
+    float head_chin;           /* v: the chin's bottom: a head shake moves everything above fully */
+    float neck_end;            /* v: the neck's foot: fading to nothing here */
+} muse_photo_layout_t;
+
+extern const muse_photo_layout_t muse_photo_layout;
+
 /* A touch on the face at (u, v), each 0..1 across and down the avatar: the
  * next pet (muse_state_make_happy) reacts to where it landed. The hair gets a
  * ruffle and sparkles, an eye winks, the cheeks and mouth giggle with hearts,

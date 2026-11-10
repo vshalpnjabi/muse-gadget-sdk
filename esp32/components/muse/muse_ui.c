@@ -2052,9 +2052,10 @@ static void update_power(float now)
     }
     s_next_power_update = now + 1.0f;
 
-#if CONFIG_MUSE_IMU
-    {
-        /* Auto-rotate: turn the whole screen to how the board is held. */
+#if CONFIG_MUSE_IMU && CONFIG_MUSE_BOARD_LCD_BANDS
+    if (muse_board->width == muse_board->height) {
+        /* Auto-rotate: turn the whole screen to how the board is held. Only
+         * where muse_lcd_bands turns the bands, and on a square panel. */
         static int shown;
         muse_motion_t m;
         muse_motion(&m);

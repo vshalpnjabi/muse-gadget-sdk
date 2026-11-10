@@ -551,6 +551,12 @@ static esp_err_t power_off(void)
     return ESP_FAIL;
 }
 
+/* The I2C bus its QMI8658 motion sensor shares (muse_board_t.imu_bus). */
+static void *imu_bus(void)
+{
+    return s_i2c;
+}
+
 static const muse_board_t s_board = {
     .name = "Waveshare ESP32-S3-Touch-LCD-1.46",
     .width = LCD_RES,
@@ -563,6 +569,7 @@ static const muse_board_t s_board = {
     .talk_hint = { LV_ALIGN_TOP_LEFT, 20, 16 },
     .frame_ms = 40,
     .init = init,
+    .imu_bus = imu_bus,
     .display_start = display_start,
     .display_lock = display_lock,
     .display_unlock = esp_lv_adapter_unlock,

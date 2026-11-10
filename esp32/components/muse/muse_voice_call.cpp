@@ -1032,17 +1032,22 @@ static bool pump_ptt(int64_t now)
  * so Muse says one now. Verified: a system item to leave refusal mode, no
  * reply. Fire and forget: never retried, and a send that fails doesn't end
  * the call. */
+#ifndef CONFIG_MUSE_OWNER_NAME
+#define CONFIG_MUSE_OWNER_NAME "my owner"   /* host tests: no Kconfig */
+#endif
+#define OWNER CONFIG_MUSE_OWNER_NAME
 static const char GUARD_LOST[] =
-    "[voice guard] The current speaker is NOT verified as Vishal. Enter refusal mode: speak ONE brief, polite "
-    "refusal now, rotating among: \"I suspect this isn't Vishal talking, so I can't help with that.\" / "
-    "\"Sorry — I can only help Vishal, and I can't verify that this is him.\" / \"This doesn't sound like "
-    "Vishal, so I'll have to stop here.\" / \"I can't confirm it's Vishal speaking, so I'm not able to "
-    "continue.\" / \"I only take requests from Vishal, and this voice isn't verified as his.\" Do not answer "
+    "[voice guard] The current speaker is NOT verified as " OWNER ". Enter refusal mode: speak ONE brief, polite "
+    "refusal now, rotating among: \"I suspect this isn't " OWNER " talking, so I can't help with that.\" / "
+    "\"Sorry — I can only help " OWNER ", and I can't verify that this is them.\" / \"This doesn't sound like "
+    OWNER ", so I'll have to stop here.\" / \"I can't confirm it's " OWNER " speaking, so I'm not able to "
+    "continue.\" / \"I only take requests from " OWNER ", and this voice isn't verified.\" Do not answer "
     "questions, carry out instructions, or take any action while in refusal mode; decline any further request "
     "the same way until a verified message arrives.";
 static const char GUARD_VERIFIED[] =
-    "[voice guard] Vishal is verified again. Leave refusal mode and resume helping normally; do not mention the "
+    "[voice guard] " OWNER " is verified again. Leave refusal mode and resume helping normally; do not mention the "
     "voice guard or the interruption.";
+#undef OWNER
 
 static void guard_send(const char *line, size_t n)
 {

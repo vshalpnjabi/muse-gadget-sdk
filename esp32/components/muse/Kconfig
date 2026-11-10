@@ -387,6 +387,30 @@ menu "Muse"
         help
             Used only with the I2S mic option; -1 leaves it unconnected.
 
+    config MUSE_BOARD_HAS_QMI8658
+        bool
+        default y if MUSE_BOARD_WAVESHARE_S3_175C || MUSE_BOARD_WAVESHARE_S3_175
+        default y if MUSE_BOARD_WAVESHARE_S3_143 || MUSE_BOARD_WAVESHARE_S3_146
+        default y if MUSE_BOARD_WAVESHARE_S3_18 || MUSE_BOARD_WAVESHARE_S3_206
+        default y if MUSE_BOARD_WAVESHARE_S3_216 || MUSE_BOARD_WAVESHARE_S3_LCD128
+        help
+            The board has a QMI8658 motion sensor on an I2C bus its driver
+            hands out (muse_board_t.imu_bus). Boards whose QMI8658 isn't
+            confirmed and wired are left out; add one here and give its
+            driver an imu_bus to opt it in.
+
+    config MUSE_BOARD_LCD_BANDS
+        bool
+        default y if MUSE_BOARD_WAVESHARE_S3_175C || MUSE_BOARD_WAVESHARE_S3_175
+        default y if MUSE_BOARD_WAVESHARE_S3_216 || MUSE_BOARD_WAVESHARE_S3_206
+        default y if MUSE_BOARD_WAVESHARE_S3_185C || MUSE_BOARD_WAVESHARE_S3_143C
+        default y if MUSE_BOARD_WAVESHARE_S3_143 || MUSE_BOARD_WAVESHARE_S3_146
+        default y if MUSE_BOARD_ESP_MOSAICO || MUSE_BOARD_WAVESHARE_S3_18
+        default y if MUSE_BOARD_SENSECAP_WATCHER || MUSE_BOARD_M5STACK_STOPWATCH
+        help
+            The panel is driven through boards/muse_lcd_bands.c, whose flush
+            can turn a band for a rotated display (auto-rotate).
+
     config MUSE_STATIC_BUFFERS_IN_PSRAM
         bool "Keep the avatar's and audio's static buffers in PSRAM"
         depends on MUSE_ENABLED && SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
@@ -434,13 +458,40 @@ menu "Muse"
             them. Needs PSRAM. Without it, voice notes go over Home Link's own
             session to its paired VM and replies are shown as text.
 
+    config MUSE_NAME
+        string "The companion's name, as the board shows it"
+        default "Muse"
+        help
+            What the settings' notes and rows call your companion ("Vi
+            explains", "Vi sleeps on the face"). The Muse app, server and
+            pairing keep their own names.
+
+    config MUSE_OWNER_NAME
+        string "The owner's name (the voice guard's refusals)"
+        default "my owner"
+        help
+            Who the companion serves, as it says it when the voice guard
+            doesn't recognize a voice: "I can only help <name>". A first
+            name reads best.
+
+    config MUSE_AVATAR_DIR
+        string "Folder with your own avatar files"
+        default ""
+        help
+            Where muse_pixel.c (your drawn character, tools/muse/AVATAR_RECIPE.md)
+            and muse_photo_img.c (a photo face, tools/muse/photo_avatar.py
+            --out) are looked for: absolute, or relative to esp32/. Empty:
+            components/muse/avatar/. Keeping them outside the repository
+            lets every checkout and worktree build with them. Either file
+            may be missing; the default avatar stands in.
+
     config MUSE_DEFAULT_THEME
         int "Default theme (0 Muse, 1 Purple, 2 Blue, 3 Green, 4 Orange, 5 Pink, 6 Mono)"
         range 0 6
         default 1
         help
             The UI's colours until one is picked in Settings > Appearance >
-            Theme. Muse matches Vi in the Muse app (navy, beige, cream);
+            Theme. Muse is the Muse app's own look (navy, beige, cream);
             Purple is the original; the rest are solid colours.
 
     config MUSE_CLOCK
@@ -462,17 +513,20 @@ menu "Muse"
 
     config MUSE_IMU
         bool "Motion sensor: Muse reacts to tilting and shaking"
-        depends on MUSE_BOARD_WAVESHARE_S3_175C || MUSE_BOARD_WAVESHARE_S3_175
+        depends on MUSE_BOARD_HAS_QMI8658 && SPIRAM
         default n
         help
             Reads the board's QMI8658 on its I2C bus at 50 Hz: tipped, the
             photo face looks toward the low side and leans; shaken, it gets
-            dizzy. Costs a small task with its stack in PSRAM.
+            dizzy. On boards whose panel can turn (MUSE_BOARD_LCD_BANDS, a
+            square panel) Settings > Appearance also gains Auto-rotate. If
+            no sensor answers at boot it logs that and stays off. Costs a
+            small task with its stack in PSRAM.
 
     config MUSE_WAKE_WORD
         bool "Wake word: a phrase starts a call"
-        depends on MUSE_BOARD_WAVESHARE_S3_175C
-        default y
+        depends on MUSE_REALTIME_VOICE && (IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32P4)
+        default n
         help
             A microWakeWord streaming model listens to the idle mic while
             Settings > Sound > Wake word is on (off by default), and hearing
@@ -482,12 +536,15 @@ menu "Muse"
     config MUSE_WAKE_MODEL
         string "Wake word: model file (in components/muse)"
         depends on MUSE_WAKE_WORD
-        default "wake/hey_vi.tflite"
+        default "wake/hey_jarvis.tflite"
+        help
+            A microWakeWord streaming model, relative to components/muse.
+            wake/README.md lists the ones here and how to train your own.
 
     config MUSE_WAKE_PHRASE
         string "Wake word: the phrase, as shown"
         depends on MUSE_WAKE_WORD
-        default "Hey Vi"
+        default "Hey Jarvis"
 
     config MUSE_WAKE_CUTOFF
         int "Wake word: probability cutoff (percent)"
@@ -508,15 +565,15 @@ menu "Muse"
 
     config MUSE_VOICE_GUARD
         bool "Voice guard (shadow mode): check who's speaking"
-        depends on MUSE_BOARD_WAVESHARE_S3_175C
-        default y
+        depends on MUSE_REALTIME_VOICE
+        default n
         help
             Keeps a copy of the last ~4 s of the mic audio sent to Muse and,
             during a call or voice note, sends its last 3 s every 0.5 s to a
             speaker-verification service, logging each verdict and showing it
             as a small dot (green: the speaker, red: not, grey: no verdict).
             Shadow mode: the verdict never changes what Muse hears. Does
-            nothing until a token is set.
+            nothing until a token, a speaker and a base URL are set.
 
     config MUSE_VG_ENFORCE
         bool "Voice guard: only a verified voice reaches Muse in a call"
@@ -532,19 +589,26 @@ menu "Muse"
     config MUSE_VG_HOME_BASE
         string "Voice guard: home base URL (tried first)"
         depends on MUSE_VOICE_GUARD
-        default "http://192.168.1.214:8792"
+        default ""
+        help
+            The verification service on your own network, e.g.
+            http://192.168.1.10:8792. Empty: only the HTTPS base is used.
 
     config MUSE_VG_AWAY_BASE
         string "Voice guard: HTTPS base URL (if home fails)"
         depends on MUSE_VOICE_GUARD
-        default "https://vpmacmini.tail94daa8.ts.net/vg"
+        default ""
         help
-            Validated against the firmware's CA bundle.
+            The same service over HTTPS, for when the home base can't be
+            reached (away from home). Validated against the firmware's CA
+            bundle. Empty: only the home base is used.
 
     config MUSE_VG_SPEAKER
         string "Voice guard: speaker name"
         depends on MUSE_VOICE_GUARD
-        default "vishal"
+        default ""
+        help
+            The enrolled speaker the service checks against (its id there).
 
     config MUSE_VG_TOKEN
         string "Voice guard: token (X-VG-Token)"

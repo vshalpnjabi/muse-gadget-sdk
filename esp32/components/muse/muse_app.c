@@ -27,6 +27,9 @@
 #if CONFIG_MUSE_VOICE_GUARD
 #include "muse_vg.h"
 #endif
+#if CONFIG_MUSE_IMU
+#include "muse_imu.h"
+#endif
 #include "muse_battery.h"
 #include "muse_board.h"
 #include "muse_ble.h"
@@ -116,6 +119,10 @@ void muse_app_run(const muse_board_t *board)
     muse_video_wifi_start();
 #endif
     ESP_ERROR_CHECK(muse_ui_start());
+#if CONFIG_MUSE_IMU
+    /* Any board that hands out its sensor's bus; logs if none answers. */
+    if (board->imu_bus && board->imu_bus()) muse_imu_init(board->imu_bus());
+#endif
     ESP_LOGI(TAG, "UI built: free internal %u", (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
 
     QueueHandle_t q = xQueueCreate(16, sizeof(muse_input_event_t));
