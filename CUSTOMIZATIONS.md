@@ -55,6 +55,7 @@ Measured: the board sends the call request ~10–30 ms after a tap; Muse's serve
 | Brightness | In Appearance as well as Sound. | `muse_settings_ui.c` |
 | Auto-rotate | Settings > Appearance > Auto-rotate: the screen turns with gravity (IMU). | `muse_ui.c`, `boards/muse_lcd_bands.c` |
 | Always-on display | Settings > Appearance > Always-on display (off by default): when idle the screen stays on at **5%** with the face and clock instead of going dark; the first tap only wakes it. | `muse_ui.c` (`update_sleep`) |
+| Button sleep | A press of the bottom button (BOOT) puts it to sleep so that only a button wakes it: touch, shaking, images from Muse and the wake word don't; the always-on display goes fully dark and the wake word stops listening. Auto-sleep is unchanged; pairing prompts still wake it. | `muse_state.c` (`muse_state_hold_asleep`), `muse_input.c` |
 
 ## 5. Clock, sleep hours, do not disturb
 
