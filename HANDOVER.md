@@ -118,6 +118,14 @@ TF 2.21 deadlock/abort). Training needs `tensorboard`.
 
 ## Don't forget
 
+- **Working folder**: `~/Library/CloudStorage/Dropbox/github.com/vshalpnjabi__muse-gadget-sdk`
+  on `vishal_customizations` (the fork's default branch). Remotes: `origin` = the fork,
+  `upstream` = facebookincubator (fetch only; push disabled). Local `main` tracks upstream.
+- **Not in git, copied into that folder by hand**: `esp32/components/muse/avatar/` (the
+  photo face `muse_photo_img.c` and the refined pixel art `muse_pixel.c`; the repo's
+  AGENTS.md says never commit it) and the token file below. A fresh clone elsewhere builds
+  with the default avatar until these are copied in.
+
 - The Mac mini's disk was reported 100% full by Muse — the relay may fail if it stays full.
 - Old build folder moved to the job's tmp during wrap-up; the fresh build in
   `esp32/build-muse-waveshare-s3-175c` comes from git config + `.local`.
