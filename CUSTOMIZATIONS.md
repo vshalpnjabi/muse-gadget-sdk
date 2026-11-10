@@ -127,4 +127,19 @@ IDF_EXPORT=~/esp/esp-idf-v6.0.3/export.sh tools/muse/board.sh flash s3 /dev/cu.u
 
 `board.sh` applies, in order: `sdkconfig.defaults`, `devices/sdkconfig.muse`,
 `devices/sdkconfig.muse-waveshare-s3-175c`, then this fork's `-custom` overlay and the
-git-ignored `.local` secrets.
+git-ignored `.local` secrets (the Muse SDK token and the voice guard token; see
+`.local.example`).
+
+### Safeguards
+
+- **Config lock**: `devices/sdkconfig.muse-waveshare-s3-175c.lock` pins all 2,451 resolved
+  settings of the known-good build (secrets left out). `board.sh build` fails and lists any
+  setting that drifts from it, so a dropped option (a ring, a label, a Wi-Fi buffer) can't
+  reach the board unnoticed. After a deliberate change:
+  `python3 tools/muse/config_lock.py update build-muse-waveshare-s3-175c/sdkconfig devices/sdkconfig.muse-waveshare-s3-175c.lock`,
+  then commit the lock.
+- **Flash backups**: every successful `board.sh flash` saves the exact images, the build's
+  sdkconfig, `BUILD_INFO` (commit, time) and a `flash.sh` to
+  `esp32/firmware-backups/<profile>/<date>/` (the day's last flash; the newest 7 kept;
+  `latest` links the newest). Restore: `esp32/firmware-backups/waveshare-s3-175c/latest/flash.sh /dev/cu.usbmodem101`.
+  Git-ignored: the images carry the tokens.

@@ -55,3 +55,6 @@ local.properties
 
 # Per-board local secrets (e.g. the voice guard token), applied by tools/muse/board.sh.
 devices/sdkconfig.*.local
+
+# Backups of flashed firmware (tools/muse/board.sh): they carry the build's tokens.
+firmware-backups/

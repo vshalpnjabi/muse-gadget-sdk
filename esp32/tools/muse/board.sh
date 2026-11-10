@@ -140,6 +140,12 @@ if [ "$cmd" = build ]; then
     clean
     grep -E "error:|undefined reference" $log | head -20
     tail -3 $log
+    # A board with a config lock: the build must resolve to exactly the pinned
+    # settings, so a dropped or changed option can't reach the board unnoticed.
+    lock="devices/sdkconfig.muse-$profile.lock"
+    if [ $rc -eq 0 ] && [ -f "$lock" ]; then
+        python3 tools/muse/config_lock.py check "$B/sdkconfig" "$lock" || rc=1
+    fi
     exit $rc
 fi
 if [ -n "${iris:-}" ]; then
@@ -156,4 +162,37 @@ fi
 port=$(python "$root/tools/muse/ports.py" $board ${3:-}) || exit 1
 esptool="-m esptool"
 [ -n "${paced:-}" ] && esptool="$root/tools/muse/paced_esptool.py"
-cd $B && python $esptool --chip $target -p $port -b $baud --before default-reset --after hard-reset write-flash "@flash_args" 2>&1 | tail -3
+# Each successful flash is backed up: the exact images, the build's sdkconfig
+# and a flash.sh to put them back. One folder per day (the day's last flash),
+# the newest 7 days kept, `latest` the newest. firmware-backups/ is git-ignored:
+# the images carry the build's tokens.
+backup_flash() {
+    local dir="$root/firmware-backups/$profile" day commit d f
+    day=$(date +%F)
+    commit=$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo unknown)
+    d="$dir/$day"
+    rm -rf "$d" && mkdir -p "$d" || return 1
+    cp flash_args sdkconfig "$d/" || return 1
+    for f in $(grep -oE '[^ ]+\.bin' flash_args); do
+        mkdir -p "$d/$(dirname "$f")" && cp "$f" "$d/$f" || return 1
+    done
+    printf 'board=%s\nprofile=%s\ncommit=%s\nflashed=%s\nport=%s\n' \
+        "$board" "$profile" "$commit" "$(date '+%F %T')" "$port" > "$d/BUILD_INFO"
+    cat > "$d/flash.sh" <<EOF
+#!/bin/bash
+# Re-flashes this backup: ./flash.sh PORT (e.g. /dev/cu.usbmodem101), ESP-IDF's Python active.
+cd "\$(dirname "\$0")" && python -m esptool --chip $target -p "\${1:?serial port}" -b $baud \\
+    --before default-reset --after hard-reset write-flash "@flash_args"
+EOF
+    chmod +x "$d/flash.sh"
+    ln -sfn "$day" "$dir/latest"
+    # The newest 7 days only.
+    ls -1 "$dir" | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' | sort -r | tail -n +8 |
+        while read -r old; do rm -rf "${dir:?}/$old"; done
+    echo "backed up: $d (commit $commit)"
+}
+cd $B && python $esptool --chip $target -p $port -b $baud --before default-reset --after hard-reset write-flash "@flash_args" > /tmp/muse_flash_$board.log 2>&1
+rc=$?
+tail -3 /tmp/muse_flash_$board.log
+[ $rc -eq 0 ] && { backup_flash || echo "warning: the flash worked, but its backup failed" >&2; }
+exit $rc
