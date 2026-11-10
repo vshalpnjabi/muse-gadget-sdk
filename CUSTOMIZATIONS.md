@@ -130,6 +130,14 @@ IDF_EXPORT=~/esp/esp-idf-v6.0.3/export.sh tools/muse/board.sh flash s3 /dev/cu.u
 git-ignored `.local` secrets (the Muse SDK token and the voice guard token; see
 `.local.example`).
 
+### Versions and release notes
+
+[`RELEASE_NOTES.md`](RELEASE_NOTES.md) lists each release, newest first. Its top
+`## x.y.z` heading is the firmware's version: **Settings > Version** shows
+`x.y.z - <commit>` and opens the commit, build time and the notes (a `+` after the commit
+means it was built with uncommitted changes). To release: add a `## x.y.z — date`
+section at the top, commit, then build and flash.
+
 ### Safeguards
 
 - **Config lock**: `devices/sdkconfig.muse-waveshare-s3-175c.lock` pins all 2,451 resolved
