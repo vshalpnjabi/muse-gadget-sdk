@@ -1,5 +1,8 @@
 # Copy to sdkconfig.muse-waveshare-s3-175c.local (git ignores it) and fill in.
 # tools/muse/board.sh applies it last, so secrets never enter a committed file.
 
+# Muse SDK token (mgst_..., from gadgets.muse.ai > Account > SDK tokens): every build needs it.
+CONFIG_GADGET_SDK_TOKEN=""
+
 # Voice guard token: the relay's X-VG-Token (on the Mac mini: ~/voice-guardrail/token.txt).
 CONFIG_MUSE_VG_TOKEN=""

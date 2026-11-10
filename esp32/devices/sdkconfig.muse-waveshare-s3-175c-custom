@@ -13,6 +13,23 @@ CONFIG_MUSE_SPEAKER_MAX_DB=12
 # The face: touch sounds, a fixed avatar size under captions.
 CONFIG_MUSE_UI_TOUCH_SOUNDS=y
 CONFIG_MUSE_UI_FIXED_AVATAR=y
+# A plainer home screen: no READY text, mode names, ring or power icon; the
+# battery as a bare percentage; a plain speaker icon; small captions.
+CONFIG_MUSE_UI_HIDE_READY=y
+CONFIG_MUSE_UI_HIDE_MODE_NAMES=y
+CONFIG_MUSE_UI_NO_RING=y
+CONFIG_MUSE_UI_NO_AUX_ICON=y
+CONFIG_MUSE_UI_BATTERY_PERCENT_ONLY=y
+CONFIG_MUSE_UI_PLAIN_SPEAKER=y
+CONFIG_MUSE_UI_SMALL_CAPTIONS=y
+# The default theme: Muse (Vi's colours in the Muse app).
+CONFIG_MUSE_DEFAULT_THEME=0
+
+# Wi-Fi static buffers 6 and RX block-ack window 12: leaves the 16 KiB of
+# DMA-capable RAM the Noise link needs to send link.register.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=6
+CONFIG_ESP_WIFI_RX_BA_WIN=12
 
 # Clock, sleep hours and do not disturb; the time zone (POSIX TZ).
 CONFIG_MUSE_CLOCK=y
