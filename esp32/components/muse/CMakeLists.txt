@@ -244,6 +244,43 @@ idf_component_register(
     PRIV_REQUIRES ${muse_priv_requires}
 )
 
+if(CONFIG_MUSE_ENABLED)
+    # Settings > Version: this fork's version (the top "## x.y.z" of RELEASE_NOTES.md),
+    # the git commit and the build time, and the release notes themselves. board.sh
+    # reconfigures on every build (it clears managed_components), so they're current.
+    set(muse_notes "${COMPONENT_DIR}/../../../RELEASE_NOTES.md")
+    set(muse_fw_version "dev")
+    set(muse_fw_commit "unknown")
+    if(EXISTS "${muse_notes}")
+        file(STRINGS "${muse_notes}" muse_heads REGEX "^## [0-9]+\\.[0-9]+")
+        list(LENGTH muse_heads muse_n)
+        if(muse_n GREATER 0)
+            list(GET muse_heads 0 muse_head)
+            string(REGEX MATCH "[0-9]+\\.[0-9]+(\\.[0-9]+)?" muse_fw_version "${muse_head}")
+        endif()
+    else()
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/RELEASE_NOTES.md" "No release notes in this build.\n")
+        set(muse_notes "${CMAKE_CURRENT_BINARY_DIR}/RELEASE_NOTES.md")
+    endif()
+    find_package(Git QUIET)
+    if(GIT_FOUND)
+        execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --short HEAD
+            WORKING_DIRECTORY "${COMPONENT_DIR}" OUTPUT_VARIABLE muse_fw_commit
+            OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+        execute_process(COMMAND "${GIT_EXECUTABLE}" status --porcelain --untracked-files=no
+            WORKING_DIRECTORY "${COMPONENT_DIR}" OUTPUT_VARIABLE muse_dirty ERROR_QUIET)
+        if(muse_dirty)
+            set(muse_fw_commit "${muse_fw_commit}+")   # built with uncommitted changes
+        endif()
+    endif()
+    string(TIMESTAMP muse_fw_built "%Y-%m-%d %H:%M")
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        "MUSE_FW_VERSION=\"${muse_fw_version}\"" "MUSE_FW_COMMIT=\"${muse_fw_commit}\""
+        "MUSE_FW_BUILT=\"${muse_fw_built}\"")
+    configure_file("${muse_notes}" "${CMAKE_CURRENT_BINARY_DIR}/release_notes.md" COPYONLY)
+    target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_BINARY_DIR}/release_notes.md" TEXT)
+endif()
+
 if(CONFIG_MUSE_WAKE_WORD)
     target_include_directories(${COMPONENT_LIB} PRIVATE
         "${COMPONENT_DIR}/wake/microfrontend" "${COMPONENT_DIR}/wake/microfrontend/kissfft")

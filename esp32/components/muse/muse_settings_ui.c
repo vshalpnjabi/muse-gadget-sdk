@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include "esp_app_desc.h"
+#include "esp_heap_caps.h"
 #include "esp_mac.h"
 #include "esp_timer.h"
 #include "sdkconfig.h"
@@ -2110,6 +2111,115 @@ static void on_camera(lv_event_t *e)
 }
 #endif
 
+/* ---- Version: this fork's version, commit and build time, and the release
+ * notes (RELEASE_NOTES.md, embedded by CMakeLists.txt). A full-screen page. ---- */
+
+#ifndef MUSE_FW_VERSION
+#define MUSE_FW_VERSION "dev"
+#define MUSE_FW_COMMIT "unknown"
+#define MUSE_FW_BUILT ""
+#endif
+
+extern const char release_notes_start[] asm("_binary_release_notes_md_start");
+
+static lv_obj_t *s_version_ov;
+
+static void on_version_close(lv_event_t *e)
+{
+    (void)e;
+    if (s_version_ov) {
+        lv_obj_delete(s_version_ov);
+        s_version_ov = NULL;
+    }
+}
+
+/* The notes from the first "## " on, as plain ASCII the built-in fonts can draw:
+ * headings without their #s, an em dash as "-". In PSRAM: it's a few KB. */
+static char *version_notes(void)
+{
+    const char *src = strstr(release_notes_start, "\n## ");
+    src = src ? src + 1 : release_notes_start;
+    size_t cap = strlen(src) + 1;
+    char *out = heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!out) return NULL;
+    size_t n = 0;
+    bool line_start = true;
+    while (*src && n + 1 < cap) {
+        if (line_start && src[0] == '#') {
+            while (*src == '#') src++;
+            while (*src == ' ') src++;
+            line_start = false;
+            continue;
+        }
+        if ((unsigned char)src[0] == 0xE2 && (unsigned char)src[1] == 0x80 &&
+            ((unsigned char)src[2] == 0x94 || (unsigned char)src[2] == 0x93)) {
+            out[n++] = '-';   /* em or en dash */
+            src += 3;
+            continue;
+        }
+        line_start = *src == '\n';
+        out[n++] = *src++;
+    }
+    out[n] = '\0';
+    return out;
+}
+
+static void on_version_open(lv_event_t *e)
+{
+    (void)e;
+    if (s_version_ov) return;
+    int w = lv_display_get_horizontal_resolution(NULL), h = lv_display_get_vertical_resolution(NULL);
+    s_version_ov = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(s_version_ov);
+    lv_obj_set_size(s_version_ov, w, h);
+    lv_obj_set_style_bg_color(s_version_ov, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(s_version_ov, LV_OPA_COVER, 0);
+    lv_obj_add_flag(s_version_ov, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(s_version_ov, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *title = lv_label_create(s_version_ov);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(COLOR_ACCENT), 0);
+    lv_label_set_text(title, "VERSION " MUSE_FW_VERSION);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, h / 10);
+
+    lv_obj_t *meta = lv_label_create(s_version_ov);
+    lv_obj_set_style_text_font(meta, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(meta, lv_color_hex(COLOR_DIM), 0);
+    lv_obj_set_style_text_align(meta, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(meta, "commit " MUSE_FW_COMMIT "\nbuilt " MUSE_FW_BUILT);
+    lv_obj_align(meta, LV_ALIGN_TOP_MID, 0, h / 10 + 24);
+
+    /* The notes scroll inside the round screen's middle. */
+    lv_obj_t *box = lv_obj_create(s_version_ov);
+    lv_obj_remove_style_all(box);
+    lv_obj_set_size(box, w * 74 / 100, h * 50 / 100);
+    lv_obj_align(box, LV_ALIGN_CENTER, 0, h / 30);
+    lv_obj_set_scroll_dir(box, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_ACTIVE);
+    lv_obj_t *notes = lv_label_create(box);
+    lv_obj_set_width(notes, lv_pct(100));
+    lv_label_set_long_mode(notes, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_text_font(notes, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(notes, lv_color_hex(COLOR_TEXT), 0);
+    char *text = version_notes();
+    lv_label_set_text(notes, text ? text : "No release notes.");
+    heap_caps_free(text);   /* the label keeps its own copy */
+
+    lv_obj_t *btn = lv_button_create(s_version_ov);
+    lv_obj_set_size(btn, 110, 40);
+    lv_obj_set_style_radius(btn, 20, 0);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(COLOR_CARD), 0);
+    lv_obj_set_style_shadow_width(btn, 0, 0);
+    lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, -h / 14);
+    lv_obj_add_event_cb(btn, on_version_close, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *bl = lv_label_create(btn);
+    lv_obj_set_style_text_font(bl, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(bl, lv_color_hex(COLOR_TEXT), 0);
+    lv_label_set_text(bl, "Close");
+    lv_obj_center(bl);
+}
+
 static void build_home(lv_obj_t *tile)
 {
     lv_obj_t *list;
@@ -2135,6 +2245,9 @@ static void build_home(lv_obj_t *tile)
     if (muse_board->power_off) {
         row(list, LV_SYMBOL_POWER, "Power off", NULL, on_nav, (void *)&POWER);
     }
+    lv_obj_t *version_val;
+    row(list, LV_SYMBOL_LIST, "Version", &version_val, on_version_open, NULL);
+    set_text(version_val, MUSE_FW_VERSION " - " MUSE_FW_COMMIT);
     s_about = note(list, "");
 }
 
@@ -2185,7 +2298,7 @@ static void tick_home(void)
     }
 #endif
 
-    snprintf(buf, sizeof(buf), narrow_panel() ? "Muse %s\n%s" : "Muse %s  -  %s", esp_app_get_description()->version,
+    snprintf(buf, sizeof(buf), narrow_panel() ? "Muse %s\n%s" : "Muse %s  -  %s", MUSE_FW_VERSION,
              w.state == MUSE_WIFI_CONNECTED ? w.ip : "offline");
     set_text(s_about, buf);
 }
