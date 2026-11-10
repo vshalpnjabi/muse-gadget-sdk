@@ -4,7 +4,7 @@ Read this first in a new session. Feature list: [CUSTOMIZATIONS.md](CUSTOMIZATIO
 
 ## TL;DR
 
-- Branch `worktree-call-greeting-delay` (this fork) holds everything; the board runs
+- Branch `vishal_customizations` (this fork) holds everything; the board runs
   commit `f9c0a69`-era firmware plus the build-config overlay below. It boots with ~29 KiB
   DMA free, connects to the Muse VM in ~1.5 s.
 - **Voice guard** works end to end (gate on red only, notice/tone/"Muse explains" refusal,
@@ -37,7 +37,7 @@ Read this first in a new session. Feature list: [CUSTOMIZATIONS.md](CUSTOMIZATIO
 ## Current state
 
 - **Repo**: worktree `…/facebookincubator__muse-gadget-sdk/.claude/worktrees/call-greeting-delay`,
-  branch `worktree-call-greeting-delay`, ~36 commits ahead of `main`. Pushed to the user's
+  branch `vishal_customizations`, ~36 commits ahead of `main`. Pushed to the user's
   fork (see External context). The worktree may be deleted; the fork branch is the copy.
 - **Board**: Waveshare 1.75C on `/dev/cu.usbmodem101`, flashed with the "Hey Vi" build.
 - **Outside the repo**:
@@ -109,7 +109,7 @@ TF 2.21 deadlock/abort). Training needs `tensorboard`.
 ## External context
 
 - **Upstream**: facebookincubator/muse-gadget-sdk (`main`).
-- **Fork**: vshalpnjabi/muse-gadget-sdk, branch `worktree-call-greeting-delay`.
+- **Fork**: vshalpnjabi/muse-gadget-sdk, branch `vishal_customizations`.
 - **Muse Management side chat**: reached via `tools/muse/chat.py`; it owns the relay,
   print bank, calibration server and refusal policy.
 - **Accounts**: GitHub `vshalpnjabi`; Muse SDK token in the board's NVS; voice guard token
